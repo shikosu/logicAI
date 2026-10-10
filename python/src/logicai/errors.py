@@ -57,6 +57,10 @@ class WireLoopError(FlattenError):
     """Une boucle de fils sans aucune NAND : sa valeur n'est pas définie."""
 
 
+class ComponentNestingError(FlattenError):
+    """Des composants sont imbriqués trop profondément pour la pile de Python."""
+
+
 class SimulationError(Exception):
     """La simulation ne peut pas tourner avec ces données (entrées, état, masque)."""
 

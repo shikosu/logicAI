@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from logicai.circuit import Circuit, Node, NodeKind, Pin
 from logicai.errors import (
     ComponentCycleError,
+    ComponentNestingError,
     ComponentPinMismatchError,
     UnknownComponentError,
     WireLoopError,
@@ -183,8 +184,19 @@ def flatten(circuit: Circuit, definitions: Mapping[str, Circuit]) -> Circuit:
     (il peut lui-même contenir des composants). Le circuit de départ n'est pas
     modifié. Un puits de composant non relié donne 0 à l'intérieur ; une sortie de
     composant non reliée donne 0 à l'extérieur.
+
+    Limite connue : l'aplatissement est récursif, donc il supporte environ 240 niveaux
+    de composants dans des composants (mesuré avec la limite de récursion par défaut
+    de Python, 1000). Au-delà, ``ComponentNestingError`` est levée au lieu d'un
+    plantage.
     """
-    return _Flattener(definitions).run(circuit)
+    try:
+        return _Flattener(definitions).run(circuit)
+    except RecursionError as error:
+        raise ComponentNestingError(
+            "Les composants sont imbriqués trop profondément pour être aplatis "
+            "(limite de récursion de Python)."
+        ) from error
 
 
 def flat_nand_count(circuit: Circuit, definitions: Mapping[str, Circuit]) -> int:

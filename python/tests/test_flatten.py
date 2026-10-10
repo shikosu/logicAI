@@ -21,6 +21,7 @@ from logicai.behavior import TruthTable, run_sequence, truth_table
 from logicai.circuit import Circuit, NodeKind, Pin
 from logicai.errors import (
     ComponentCycleError,
+    ComponentNestingError,
     ComponentPinMismatchError,
     SimulationError,
     UnknownComponentError,
@@ -386,6 +387,26 @@ def test_deeply_nested_components() -> None:
     flat = flatten(top, definitions)
     assert flat.nand_count() == depth + 1
     assert truth_table(flat) == TruthTable(Status.STABLE, (0b01,))
+
+
+def test_nesting_too_deep_is_refused_cleanly() -> None:
+    # Règle vérifiée : CLAUDE.md (un refus dédié et clair plutôt qu'un plantage). Python
+    # n'a pas assez de pile pour 2000 niveaux : l'aplatissement doit le dire.
+    depth = 2000
+    definitions: dict[str, Circuit] = {"L0": not_circuit()}
+    for level in range(1, depth + 1):
+        circuit = Circuit()
+        inner = _apply(
+            circuit, definitions, f"L{level - 1}", circuit.add_node(NodeKind.INPUT)
+        )
+        wire(circuit, inner, circuit.add_node(NodeKind.OUTPUT))
+        definitions[f"L{level}"] = circuit
+
+    top = Circuit()
+    a = top.add_node(NodeKind.INPUT)
+    wire(top, _apply(top, definitions, f"L{depth}", a), top.add_node(NodeKind.OUTPUT))
+    with pytest.raises(ComponentNestingError):
+        flatten(top, definitions)
 
 
 def test_fan_out_of_a_component_output() -> None:

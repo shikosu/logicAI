@@ -4,6 +4,103 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 2 : phase 2 (bibliothèque et encapsulation)
+
+### Ce qui est fait
+
+Cinq sous-étapes, chacune testée, éprouvée par mutations puis commitée :
+
+| # | Commit | Modules | Contenu |
+| --- | --- | --- | --- |
+| 1 | `b9e8ddd` | `circuit.py`, `flatten.py` | Type `COMPONENT` posé par référence, aplatissement (retards exacts), coût |
+| 2 | `90f6f3f` | `cleanup.py` | Nettoyage : retire ce qui n'a aucun chemin vers une sortie |
+| 3 | `be7972a` | `signature.py`, `behavior.py` | Signature canonique (entrées permutées = même signature), noms connus |
+| 4 | `eb94dc1` | `library.py` | Bibliothèque : `NEW` / `RECORD` / `KNOWN`, nommage, limites 15/15 réglables |
+| 5 | `dff5c0d` | `serialization.py`, `library.py` | JSON : sauvegarde et relecture (un fichier `<nom>.json` par composant) |
+
+Le test de la phase 2 du cahier est atteint : un XOR construit avec des composants NOT et AND a la même signature
+(`0b0110`) que sa version aplatie, avec 12 NAND, puis la bibliothèque le remplace par la version à 4 NAND (record).
+
+Réponses de Téo prises en compte : composants équivalents par entrées inversées = **une seule découverte** ;
+nombre maximal d'entrées et de sorties par composant = **15 et 15**, avec la possibilité de n'avoir **aucune limite**
+(`LibraryLimits.unlimited()`).
+
+### Résultats des contrôles (fin de session)
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `22 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 10 source files` |
+| `pytest` | `369 passed` (99 en début de session ; +270 en phase 2) |
+
+Les tests ont été éprouvés par mutations sur une copie hors du projet (62 erreurs volontaires dans le code).
+Chaque série a trouvé des trous dans **mes tests**, tous comblés : test de refus d'un composant trop faible (sous-étape 1),
+test de l'ordre des broches qui ne couvrait que des échanges et pas des cycles de 3 entrées (sous-étape 4), test d'identifiant
+booléen qui échouait pour une autre raison (sous-étape 5). Un mutant était équivalent (une sortie ne peut jamais être
+retirée par le nettoyage) : vérifié par une mutation combinée. Une série n'avait rien affiché (la commande `timeout` n'existe
+pas sur macOS) : reconnue comme invalide et refaite avec `perl`.
+
+### Décisions prises (plan validé par Téo avec « OK avec tes recommandations »)
+
+1. **Entrées « inversées »** = entrées **échangées** (permutation), pas niées. AND et NOR restent deux découvertes. Les sorties
+   ne sont jamais permutées. Conséquence : au palier 2, les 10 fonctions du cahier font **8 découvertes** (vérifié par test).
+2. **Forme canonique** : entrées rangées par une grandeur invariante, entrées symétriques regroupées, puis on essaie les ordres
+   restants. Exacte jusqu'à `MAX_ARRANGEMENTS = 5040` ordres à essayer ; au-delà, l'ordre d'origine est gardé et
+   `CanonicalForm.exact` vaut `False` (jamais de fausse fusion, seul un doublon peut échapper). Vérifiée contre le lemme de Burnside :
+   2, 4, 12, 80 et 3 984 signatures pour toutes les fonctions à 0, 1, 2, 3 et 4 entrées.
+3. **Ordre des broches** d'un composant = celui de sa première découverte. Un record équivalent est réordonné pour le garder
+   (les circuits qui utilisent le composant ne changent pas de comportement).
+4. **Signature = table de vérité** : un circuit instable est refusé. Les composants à mémoire attendent la phase 6.
+5. **Noms connus** : NOT, AND, OR, NAND, NOR, XOR, XNOR, ANDNOT (A ET NON B), ORNOT (A OU NON B), MAJ, MUX. Sinon `C-001`, `C-002`...
+6. **JSON** : format de l'exemple du cahier ; ajout du type `COMPOSANT` avec `ref`, `entrees`, `sorties` ; `x` et `y` acceptés à la
+   lecture et ignorés, jamais écrits ; un fichier `<nom>.json` par composant dans un dossier donné par l'appelant.
+7. Petites décisions : le nettoyage retire aussi les composants inutiles ; le coût est recalculé à la demande (il baisse quand
+   un composant utilisé est remplacé) ; une boucle de fils sans NAND est refusée à l'aplatissement ; un circuit sans sortie est
+   refusé ; à coût égal ce n'est pas un record ; les filtres anti-triche restent en phase 4.
+
+Écarts avec le plan : `Component` ne contient pas de coût (c'est `Library.cost`, recalculé) ; `input_patterns` est maintenant
+construit par doublement (193 ms -> 0,03 ms à 15 entrées, résultat identique) ; `Node` se vérifie lui-même ;
+`Circuit` gagne `add_component_node`, `copy`, `from_parts`, `with_inputs_reordered` ; `tests/builders.py` partage les petits circuits.
+
+### Limites connues (à garder en tête)
+
+- **Récursion** : `flatten` est récursif. Mesuré avec la limite par défaut de Python : OK jusqu'à 240 niveaux de composants dans des
+  composants, `ComponentNestingError` (erreur dédiée, pas un plantage) à partir de 250. À réécrire sans récursion si la phase 4 en
+  produit de si profonds.
+- `Circuit.remove_node` relit tous les câbles à chaque appel (temps proportionnel au nombre de câbles) : à surveiller si les
+  mutations de la phase 4 deviennent lentes.
+- Au-delà de `MAX_ARRANGEMENTS`, deux circuits identiques à une permutation près peuvent compter pour deux découvertes.
+- Après `Library.load`, `names()` suit l'ordre alphabétique des fichiers (pas l'ordre d'apparition).
+- Une table de vérité occupe `2^n` bits par signal : « aucune limite » de la bibliothèque reste limitée par la mémoire.
+- Python 3.11 : toujours pas vérifié par exécution (seul 3.14.7 est installé).
+
+### Points à valider par Téo
+
+- Les ajouts au format JSON (`entrees` et `sorties` sur un nœud composant, aucun `x` ni `y` écrit).
+- La liste des noms connus, en particulier `ANDNOT`, `ORNOT`, `MAJ` et `MUX`.
+- `MAX_ARRANGEMENTS = 5040` et le repli « non exact » au-delà.
+- **Modifications à reporter dans le cahier** (lecture seule pour Claude) : (a) « Composants équivalents » et « Nombre maximal
+  d'entrées et de sorties par composant » sont tranchés (une seule découverte pour des entrées échangées ; 15 et 15 par défaut, réglable
+  jusqu'à aucune limite) ; (b) le test de la phase 4 parle des « 10 fonctions à 2 entrées » : avec la décision (a), ce sont 8 découvertes ;
+  (c) le format JSON gagne le type `COMPOSANT` ; (d) rappel de la session 1 : « T_max tops » devient « T_max + 1 tops ».
+- Erreur dans le message du commit `be7972a` : il annonce 59 tests pour `test_signature.py`, il y en a 64. Pas réécrit (`CLAUDE.md`
+  interdit de réécrire l'historique sans demande).
+
+### Ce qui reste
+
+- **Phase 3** (affichage Unity statique) : Unity doit lire le JSON. `circuit_to_json` produit déjà le format. **À trancher en phase 3** :
+  ni le modèle Python ni le JSON n'ont de positions `x` et `y` (l'exemple du cahier en contient). Qui les calcule : Unity (placement
+  automatique) ou Python ?
+- Phases 4 à 7 inchangées.
+
+### Questions ouvertes
+
+Parmi les « points à trancher » du cahier, il reste : taille maximale d'un circuit (aucune limite fixe proposée, à confirmer),
+interprétation de la CLK, poids de la formule de récompense, critère de changement de palier.
+
+---
+
 ## 10 octobre 2026 — Session 1 : phase 0 (environnement) et phase 1 (simulateur logique)
 
 ### Ce qui est fait
