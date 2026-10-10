@@ -99,3 +99,7 @@ class UnknownComponentNameError(LibraryError):
 
 class LibraryFormatError(LibraryError):
     """Un fichier de bibliothèque est illisible, incomplet ou incohérent."""
+
+
+class InvalidMutationRulesError(Exception):
+    """Les réglages demandés pour les mutations ne sont pas valides."""

@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), en cours
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 et 2 faites
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -44,6 +44,35 @@ et toutes les petites tables (jusqu'à 3 entrées à 1 sortie, 2 entrées à 2 s
 
 Erreur de ma part, trouvée et corrigée : un test aléatoire demandait des entiers de 2³² bits (mauvais argument de `getrandbits`) et bloquait ; le module n'était pas en cause.
 
+### Étape 2 faite : mutations (`mutations.py`, `tests/test_mutations.py`, `errors.py`)
+
+- Les 7 mutations du cahier (`Mutation`) : ajouter une NAND, ajouter un composant, ajouter un câble, retirer un câble, retirer un nœud, ajouter une entrée,
+  ajouter une sortie. `apply_mutation` applique une mutation précise, `mutate` en tire une au hasard parmi les possibles (toujours possible : ajouter une NAND).
+- Le parent n'est jamais modifié (travail sur `Circuit.copy()`). Une mutation impossible rend `None` et ne change rien.
+- `MutationRules(max_inputs, max_outputs, allow_loops=False)` : réglages du palier. Q4 : une seule sortie aux paliers 1 à 3 (`max_outputs=1`) ;
+  Q5 : pas de boucle (`allow_loops=False` : un câble n'est proposé que si le nœud du puits ne mène pas déjà au nœud de la source).
+  Erreur dédiée : `InvalidMutationRulesError` (maximum négatif).
+- Tout le hasard vient du `random.Random` donné par l'appelant : même graine, même résultat (testé, et l'état global de `random` est sans effet).
+
+**Interprétation à confirmer par Téo** : le cahier dit « retirer un nœud » sans préciser. J'ai retenu : seulement les NAND et les composants ; les entrées et sorties du
+circuit ne se retirent pas (on en ajoute dans la limite du palier, et une entrée inutile est refusée par les filtres). Changer cela tient en une ligne (`_REMOVABLE_KINDS`).
+Le choix de la mutation est uniforme (pas de poids inventés) ; on les réglera par essais si besoin.
+
+À savoir pour l'étape 4 : « ajouter une entrée » ou « ajouter une NAND » seule donne un circuit refusé par les filtres (entrée ou NAND non câblée). Un enfant devra donc
+recevoir **plusieurs mutations** d'affilée.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `33 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 15 source files` |
+| `pytest` | `627 passed` (477 avant, 150 nouveaux) |
+| Mutations (copie hors du projet) | 22 erreurs volontaires dans `mutations.py` : 21 détectées, 1 équivalente |
+
+La première série en avait laissé survivre 5 : 4 venaient d'un vrai trou de **mes tests** (je ne vérifiais pas que les choix sont bien aléatoires : un code qui prenait toujours
+le premier élément passait). 4 tests de répartition ajoutés. Le mutant équivalent : sans `remaining.remove(kind)`, on retire au sort jusqu'à tomber sur une mutation possible ;
+la répartition des résultats est la même (uniforme parmi les possibles), seul le nombre de tirages change. Le code garde `remove` pour borner les essais à 7.
+
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
@@ -51,7 +80,7 @@ L'état de départ était le même que dans le journal (439 tests). Python 3.11 
 
 ### Ce qui reste (phase 4)
 
-Étapes 2 à 6 (mutations, récompense, boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
+Étapes 3 à 6 (récompense, boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
 Toujours ouverts : interprétation de la CLK (phase 6), poids de la récompense et valeur de N (par essais).
 Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
 
