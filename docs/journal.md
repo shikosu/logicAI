@@ -181,7 +181,7 @@ La commande fonctionne donc sur macOS (serveur local, IA, arrêt propre). Seul N
 Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
 Téo le vérifie sur son Mac avec `tools/run_unity_tests.sh EditMode` puis `PlayMode`. La phase 5 ne sera jugée terminée qu'après la vérification visuelle dans Unity.
 
-### Étape 7 écrite : messages en C# (**NON compilée, NON testée : à vérifier par Téo**)
+### Étape 7 faite : messages en C# (écrite ici, **vérifiée par Téo : 99 tests sur 99 verts**)
 
 Fichiers (tous dans `Assets/`, aucun `.meta` créé ni modifié) :
 
@@ -197,7 +197,7 @@ Fichiers (tous dans `Assets/`, aucun `.meta` créé ni modifié) :
 
 **Ce que j'ai pu vérifier ici (sans Unity)** : les chaînes que mes tests remplacent dans les échantillons existent bien (une seule fois) ; les morceaux de messages d'erreur attendus existent dans le code C# ; accolades et parenthèses
 sont équilibrées ; la partie Python n'a pas changé de comportement (seule la docstring de `replay.py` est corrigée : l'axe `y` monte, les nœuds d'une colonne sont posés de bas en haut, l'ordre dans une colonne n'a pas d'effet sur le circuit obtenu).
-**Ce que je n'ai pas pu vérifier** : que le C# compile, et que les 34 tests passent. C'est à Téo de lancer `tools/run_unity_tests.sh EditMode` ; je corrige selon la sortie.
+**Ce que je ne pouvais pas vérifier ici** : que le C# compile et que les 34 tests passent. Téo l'a fait sur son Mac : voir « Preuve de Téo » ci-dessous.
 
 Comportements de `JsonUtility` que je n'ai volontairement **pas** supposés : ce qu'il met dans un tableau ou un objet absent du JSON (nul ou vide : mes tests acceptent les deux, ils vérifient seulement que le message est refusé).
 Un seul pari reste : un nombre écrit sans virgule (`3`) est lu comme un `float` (test `Parse_StatsWithAnIntegerReward_IsAccepted`) ; Python écrit `3.0`, donc ce test est une précaution. S'il échoue, c'est ce test qui est à revoir, pas le parseur.
@@ -208,13 +208,16 @@ Un seul pari reste : un nombre écrit sans virgule (`3`) est lu comme un `float`
 | `ruff format --check` | `53 files already formatted` |
 | `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
 | `pytest` | `875 passed` en environ 82 s |
-| Tests C# (34 nouveaux) | **non exécutés** : en attente de la sortie de `tools/run_unity_tests.sh EditMode` sur le Mac de Téo |
+| Tests C# (34 nouveaux) | `tools/run_unity_tests.sh EditMode` sur le Mac de Téo : `{'total': '99', 'passed': '99', 'failed': '0', 'skipped': '0'}` |
 
 Les `.meta` des 5 nouveaux fichiers seront créés par l'Unity de Téo à la première ouverture ; il les commitera à part (comme en phase 3).
 
+**Preuve de Téo (10 octobre 2026)** : une première exécution a donné `total: 65`, c'est-à-dire exactement le compte d'avant l'étape 7 (56 `[Test]` + 9 `[TestCase]`) : les 34 nouveaux tests n'avaient pas tourné, le dossier
+de Téo ne contenait pas encore mes commits (le script copie `Assets/` depuis le dossier où il est lancé). Je n'ai donc rien conclu de ce résultat. Après avoir récupéré la branche : `total: 99` (65 + 34), 99 réussis, 0 échec, 0 ignoré.
+Le C# compile donc, et mes paris sur `JsonUtility` (dont « `3` lu comme un `float` ») sont confirmés. Leçon à garder : toujours comparer le **total** au compte attendu, pas seulement « 0 échec ».
+
 ### Ce qui reste
 
-- **Étape 7 : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, sortie collée ici).
 - Étape 8 : `LiveConnection.cs` (connexion TCP en fil séparé, reconnexion automatique, file lue dans `Update`).
 - Étape 9 : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
