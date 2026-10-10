@@ -75,14 +75,26 @@ class _Link(NamedTuple):
     position: int
 
 
-class _Plan(NamedTuple):
-    """Le circuit préparé pour le calcul : ce que lit chaque NAND et chaque sortie."""
+class Plan(NamedTuple):
+    """Le circuit préparé pour le calcul : ce que lit chaque NAND et chaque sortie.
+
+    Préparer un circuit coûte plus cher qu'un top : pour jouer beaucoup de séquences sur
+    le même circuit, on le prépare une fois (``compile_circuit``) et on donne le plan à
+    ``settle``. Le circuit ne doit pas changer entre les deux.
+    """
 
     nand_links: tuple[tuple[_Link, _Link], ...]
     output_links: tuple[_Link, ...]
 
 
 _NO_LINK = _Link(_Origin.NONE, _UNWIRED_VALUE)
+
+
+def compile_circuit(circuit: Circuit) -> Plan:
+    """Prépare un circuit aplati pour ``settle`` et ``tick`` (argument ``plan``)."""
+    _check_flat(circuit)
+    return _compile(circuit)
+
 
 # Seul endroit qui dit quels types de nœuds peuvent servir de source au calcul.
 # Un nouveau type de source s'ajoutera ici. La CLK se lit comme une entrée de plus,
@@ -105,13 +117,15 @@ def tick(
     mask: int,
     state: Sequence[int] | None = None,
     clock: int | None = None,
+    plan: Plan | None = None,
 ) -> tuple[int, ...]:
     """Renvoie l'état après un seul top (une valeur par NAND).
 
     ``state`` est l'état au top précédent ; sans lui, toutes les NAND valent 0.
-    ``clock`` est la valeur de la CLK, obligatoire si le circuit en a une.
+    ``clock`` est la valeur de la CLK, obligatoire si le circuit en a une. ``plan`` est
+    le circuit déjà préparé (``compile_circuit``), pour ne pas le refaire à chaque fois.
     """
-    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock)
+    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock, plan)
     return _advance(plan, current, inputs, mask)
 
 
@@ -121,15 +135,16 @@ def settle(
     mask: int,
     state: Sequence[int] | None = None,
     clock: int | None = None,
+    plan: Plan | None = None,
 ) -> SettleResult:
     """Fait tourner des tops, sur des entrées figées, jusqu'à la stabilité.
 
     On calcule au plus T_max + 1 tops. Le circuit est STABLE dès qu'un top ne change
     aucune valeur ; il est UNSTABLE s'il change encore au top T_max + 1. ``clock`` est
     la valeur de la CLK, figée comme les entrées ; elle est obligatoire si le circuit
-    a une CLK.
+    a une CLK. ``plan`` est le circuit déjà préparé (``compile_circuit``).
     """
-    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock)
+    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock, plan)
     limit = max_ticks(circuit)
     for tick_number in range(1, limit + 1):
         following = _advance(plan, current, inputs, mask)
@@ -148,12 +163,14 @@ def _prepare(
     mask: int,
     state: Sequence[int] | None,
     clock: int | None,
-) -> tuple[_Plan, tuple[int, ...], tuple[int, ...]]:
+    plan: Plan | None,
+) -> tuple[Plan, tuple[int, ...], tuple[int, ...]]:
     """Contrôle les données puis prépare le plan, les signaux et l'état de départ.
 
     Les signaux sont les entrées suivies d'une dernière case, la valeur de l'horloge.
     """
-    _check_flat(circuit)
+    if plan is None:
+        plan = compile_circuit(circuit)
     _check_mask(mask)
     inputs = tuple(input_values)
     if len(inputs) != len(circuit.inputs()):
@@ -175,7 +192,7 @@ def _prepare(
                 f"mais l'état donne {len(current)} valeur(s)."
             )
         _check_range(current, mask, "d'état")
-    return _compile(circuit), signals, current
+    return plan, signals, current
 
 
 def _clock_value(circuit: Circuit, clock: int | None, mask: int) -> int:
@@ -221,7 +238,7 @@ def _check_range(values: Sequence[int], mask: int, label: str) -> None:
             )
 
 
-def _compile(circuit: Circuit) -> _Plan:
+def _compile(circuit: Circuit) -> Plan:
     """Traduit le circuit en positions, pour ne pas relire les câbles à chaque top."""
     positions: dict[_Origin, dict[int, int]] = {
         _Origin.NAND: {
@@ -243,7 +260,7 @@ def _compile(circuit: Circuit) -> _Plan:
         _link(circuit, Pin(output_id, _OUTPUT_SINK), positions)
         for output_id in circuit.outputs()
     )
-    return _Plan(nand_links, output_links)
+    return Plan(nand_links, output_links)
 
 
 def _signal_positions(circuit: Circuit) -> dict[int, int]:
@@ -285,7 +302,7 @@ def _value(link: _Link, state: tuple[int, ...], inputs: tuple[int, ...]) -> int:
 
 
 def _advance(
-    plan: _Plan, state: tuple[int, ...], inputs: tuple[int, ...], mask: int
+    plan: Plan, state: tuple[int, ...], inputs: tuple[int, ...], mask: int
 ) -> tuple[int, ...]:
     """Renvoie le top suivant : toutes les NAND lisent l'ancien état, en même temps."""
     return tuple(
@@ -295,7 +312,7 @@ def _advance(
 
 
 def _read_outputs(
-    plan: _Plan, state: tuple[int, ...], inputs: tuple[int, ...]
+    plan: Plan, state: tuple[int, ...], inputs: tuple[int, ...]
 ) -> tuple[int, ...]:
     """Lit les sorties du circuit : la valeur de leur source, sans retard."""
     return tuple(_value(link, state, inputs) for link in plan.output_links)

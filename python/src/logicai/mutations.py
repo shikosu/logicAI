@@ -22,6 +22,11 @@ Règles de ce module :
 - Les paliers 1 à 3 n'ont qu'une sortie, et leurs mutations ne créent pas de boucle
   (les mémoires viennent avec les phases 5 et 6) : ce sont des réglages du palier
   (``MutationRules``), pas des règles de câblage.
+- **La CLK** (décision de Téo : un nœud que l'IA pose et câble) n'est pas une huitième
+  mutation : la liste du cahier reste de sept. Quand le palier la permet
+  (``allow_clock``), « ajouter une entrée » pose parfois la CLK à la place d'une entrée
+  (au plus une CLK par circuit : toutes partagent la même horloge). Sans ce réglage,
+  rien ne change, pas même un tirage.
 
 Le choix de la mutation se fait parmi celles qui sont possibles, avec un **poids** par
 mutation (``DEFAULT_MUTATION_WEIGHTS``, décision de Téo après des essais) : construire
@@ -73,12 +78,14 @@ class MutationRules:
 
     ``max_inputs`` et ``max_outputs`` plafonnent le nombre d'entrées et de sorties
     du circuit. Avec ``allow_loops`` à ``False``, aucun câble qui créerait une
-    boucle n'est posé : les circuits restent combinatoires.
+    boucle n'est posé : les circuits restent combinatoires. Avec ``allow_clock``,
+    l'IA peut poser une CLK (voir l'en-tête du module).
     """
 
     max_inputs: int
     max_outputs: int
     allow_loops: bool = False
+    allow_clock: bool = False
 
     def __post_init__(self) -> None:
         """Refuse un maximum négatif."""
@@ -102,7 +109,7 @@ class MutationResult:
 _Applier = Callable[[Circuit, random.Random, MutationRules, Library], bool]
 
 # Nœuds qu'on a le droit de retirer (voir l'en-tête du module).
-_REMOVABLE_KINDS = (NodeKind.NAND, NodeKind.COMPONENT)
+_REMOVABLE_KINDS = (NodeKind.NAND, NodeKind.COMPONENT, NodeKind.CLK)
 
 
 def apply_mutation(
@@ -230,10 +237,16 @@ def _remove_node(
 def _add_input(
     circuit: Circuit, rng: random.Random, rules: MutationRules, library: Library
 ) -> bool:
-    """Ajoute une entrée au circuit, si le palier le permet."""
-    if len(circuit.inputs()) >= rules.max_inputs:
+    """Ajoute une entrée au circuit, ou la CLK, si le palier le permet."""
+    kinds = []
+    if len(circuit.inputs()) < rules.max_inputs:
+        kinds.append(NodeKind.INPUT)
+    if rules.allow_clock and not circuit.clocks():
+        kinds.append(NodeKind.CLK)
+    if not kinds:
         return False
-    circuit.add_node(NodeKind.INPUT)
+    # Un seul choix possible : aucun tirage. C'est le cas sans CLK permise.
+    circuit.add_node(kinds[0] if len(kinds) == 1 else rng.choice(kinds))
     return True
 
 

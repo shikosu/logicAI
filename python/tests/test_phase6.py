@@ -11,6 +11,8 @@ Test du cahier : « l'IA trouve un demi-additionneur, puis un circuit qui mémor
 - **Bascule** : avec les boucles permises, l'IA trouve la bascule SR en NAND. Critère :
   la bibliothèque reçoit un composant dont la signature est exactement celle de la
   bascule (2 NAND, le minimum), avec une sortie (Q) ou deux (Q, Q̄).
+- **Bascule à horloge** (palier avec CLK) : avec les boucles et la CLK permises, l'IA
+  trouve la bascule D (suit D quand la CLK vaut 1, garde sa valeur sinon).
 
 Les graines sont figées et celles qui réussissent dans le budget : toutes ne réussissent
 pas (voir le journal pour le taux de réussite).
@@ -18,7 +20,7 @@ pas (voir le journal pour le taux de réussite).
 
 import pytest
 
-from builders import sr_latch, wire
+from builders import add_nand, add_not, sr_latch, wire
 from logicai.behavior import truth_table
 from logicai.challenge import Challenge
 from logicai.circuit import Circuit, NodeKind
@@ -184,3 +186,68 @@ def test_without_the_challenge_the_half_adder_is_not_found_in_the_same_budget() 
     # Contrôle négatif : même graine, même échauffement, même budget, sans défi.
     _, generation = _half_adder_search(CONTROL_SEED, with_challenge=False)
     assert generation is None
+
+
+# --- La bascule à horloge ------------------------------------------------------------
+
+# Graines qui trouvent la bascule D exacte aux générations 121, 149 et 114 (mesuré),
+# avec 1 entrée et 1 sortie, boucles et CLK permises, bibliothèque vide.
+D_LATCH_SEEDS = (0, 5, 6)
+D_LATCH_BUDGET = 200
+
+
+def _d_latch() -> Circuit:
+    """Bascule D à horloge : entrée D, une CLK, 5 NAND, sortie Q."""
+    circuit = Circuit()
+    data = circuit.add_node(NodeKind.INPUT)
+    clock = circuit.add_node(NodeKind.CLK)
+    not_data = add_not(circuit, data)
+    set_bar = add_nand(circuit, data, clock)
+    reset_bar = add_nand(circuit, not_data, clock)
+    q = circuit.add_node(NodeKind.NAND)
+    q_bar = circuit.add_node(NodeKind.NAND)
+    wire(circuit, set_bar, q, 0)
+    wire(circuit, q_bar, q, 1)
+    wire(circuit, reset_bar, q_bar, 0)
+    wire(circuit, q, q_bar, 1)
+    wire(circuit, q, circuit.add_node(NodeKind.OUTPUT))
+    return circuit
+
+
+def _d_latch_search(seed: int, allow_clock: bool) -> tuple[Library, int | None]:
+    """Cherche la bascule D depuis une bibliothèque vide ; rend aussi la génération."""
+    library = Library()
+    stage = Stage(5, 1, 1, allow_loops=True, allow_clock=allow_clock)
+    evolution = Evolution(library, stage.rules, seed=seed)
+    target = _signature_of(_d_latch())
+    for generation in range(1, D_LATCH_BUDGET + 1):
+        evolution.step()
+        if library.has_signature(target):
+            return library, generation
+    return library, None
+
+
+@pytest.mark.parametrize("seed", D_LATCH_SEEDS)
+def test_ai_finds_the_clocked_d_latch(seed: int) -> None:
+    library, generation = _d_latch_search(seed, allow_clock=True)
+    assert generation is not None, "bascule D non trouvée dans le budget"
+    name = next(
+        n
+        for n in library.names()
+        if library.component(n).signature == _signature_of(_d_latch())
+    )
+    assert library.component(name).has_memory is True
+    # Vérification indépendante : on rejoue la définition rangée dans la bibliothèque.
+    definition = flatten(library.component(name).circuit, library.definitions())
+    battery = run_battery(definition)
+    assert battery is not None
+    assert (battery.memory, battery.clocked) == (True, True)
+
+
+def test_without_the_clock_the_ai_cannot_build_the_d_latch() -> None:
+    # Contrôle négatif : sans CLK permise, aucun composant n'a de CLK.
+    library, generation = _d_latch_search(D_LATCH_SEEDS[0], allow_clock=False)
+    assert generation is None
+    for name in library.names():
+        definition = flatten(library.component(name).circuit, library.definitions())
+        assert definition.clocks() == ()

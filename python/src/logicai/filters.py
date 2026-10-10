@@ -22,10 +22,11 @@ même sens, appliqué à chaque pas de chaque séquence :
 
 - une entrée est **inutile** si retirer tous ses changements d'une marche ne modifie
   jamais les sorties (les sorties au pas t valent celles de la marche sans ces
-  changements) ;
+  changements) ; la CLK compte comme une entrée pour ce filtre : une CLK qui ne change
+  aucune sortie serait un moyen gratuit de faire passer un circuit pour nouveau ;
 - une sortie est **constante** si elle ne prend qu'une valeur, à tous les pas ;
 - deux sorties sont **identiques** si elles valent pareil à tous les pas ;
-- une sortie **recopie une entrée** si elle vaut cette entrée à tous les pas.
+- une sortie **recopie une entrée** (ou la CLK) si elle vaut ce signal à tous les pas.
 """
 
 from collections.abc import Mapping
@@ -75,23 +76,29 @@ def find_behavior_rejections(
     flat = flatten(circuit, definitions)
     input_count = len(circuit.inputs())
     battery = run_battery(flat)
-    if battery is None or (battery.status is Status.STABLE and not battery.memory):
+    if battery is None or (
+        battery.status is Status.STABLE and not battery.memory and not battery.clocked
+    ):
         return rejections_of_table(truth_table(flat), input_count)
     if battery.status is Status.UNSTABLE:
         return (Rejection.UNSTABLE,)
-    return sequential_rejections(battery.responses, input_count)
+    return sequential_rejections(battery.responses, input_count, battery.clocked)
 
 
 def sequential_rejections(
-    responses: Responses, input_count: int
+    responses: Responses, input_count: int, clocked: bool = False
 ) -> tuple[Rejection, ...]:
-    """Applique les filtres à la réponse d'un circuit stable à la batterie."""
-    observations = _observations(responses, input_count)
+    """Applique les filtres à la réponse d'un circuit stable à la batterie.
+
+    ``clocked`` dit que la CLK est le dernier signal des marches, après les entrées.
+    """
+    signal_count = input_count + clocked
+    observations = _observations(responses, signal_count, clocked)
     output_count = len(observations[0][1]) if observations else 0
     checks = (
         (
             Rejection.UNUSED_INPUT,
-            _sequential_unused_input(responses, input_count),
+            _sequential_unused_input(responses, signal_count),
         ),
         (
             Rejection.CONSTANT_OUTPUT,
@@ -103,7 +110,7 @@ def sequential_rejections(
         ),
         (
             Rejection.COPIED_INPUT,
-            _sequential_copied_input(observations, input_count, output_count),
+            _sequential_copied_input(observations, signal_count, output_count),
         ),
     )
     return tuple(reason for reason, found in checks if found)
@@ -175,20 +182,24 @@ def _has_copied_input(outputs: tuple[int, ...], input_count: int) -> bool:
 _Observation = tuple[tuple[int, ...], Outputs]
 
 
-def _observations(responses: Responses, input_count: int) -> list[_Observation]:
-    """Renvoie, pour chaque pas de chaque marche, le vecteur d'entrée et les sorties."""
+def _observations(
+    responses: Responses, signal_count: int, clocked: bool
+) -> list[_Observation]:
+    """Renvoie, pour chaque pas de chaque marche, les signaux et les sorties."""
     return [
         (vector, outputs)
         for walk, steps in responses.items()
-        for vector, outputs in zip(walk_vectors(input_count, walk), steps, strict=True)
+        for vector, outputs in zip(
+            walk_vectors(signal_count, walk, clocked), steps, strict=True
+        )
     ]
 
 
-def _sequential_unused_input(responses: Responses, input_count: int) -> bool:
-    """Dit si une entrée n'a d'effet sur aucune sortie, à aucun pas d'aucune marche."""
+def _sequential_unused_input(responses: Responses, signal_count: int) -> bool:
+    """Dit si un signal n'a d'effet sur aucune sortie, à aucun pas d'aucune marche."""
     prefixes = _prefix_outputs(responses)
     return any(
-        not _influences(responses, prefixes, index) for index in range(input_count)
+        not _influences(responses, prefixes, index) for index in range(signal_count)
     )
 
 
@@ -239,11 +250,11 @@ def _sequential_duplicate_outputs(
 
 
 def _sequential_copied_input(
-    observations: list[_Observation], input_count: int, output_count: int
+    observations: list[_Observation], signal_count: int, output_count: int
 ) -> bool:
-    """Dit si une sortie vaut une entrée à tous les pas (un fil suffirait)."""
+    """Dit si une sortie vaut un signal à tous les pas (un fil suffirait)."""
     return any(
         all(outputs[k] == vector[i] for vector, outputs in observations)
         for k in range(output_count)
-        for i in range(input_count)
+        for i in range(signal_count)
     )

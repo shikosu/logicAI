@@ -120,8 +120,8 @@ class Component:
 
     @property
     def has_memory(self) -> bool:
-        """Dit si c'est un circuit à mémoire (sa signature est séquentielle)."""
-        return isinstance(self.signature, SequentialSignature)
+        """Dit si c'est un circuit à mémoire (un circuit à CLK peut ne pas en avoir)."""
+        return isinstance(self.signature, SequentialSignature) and self.signature.memory
 
 
 @dataclass(frozen=True)
@@ -178,8 +178,8 @@ class Library:
     def _analyze(self, circuit: Circuit) -> _Candidate:
         """Aplatit le circuit, refuse l'instable, puis calcule coût et signature.
 
-        Un circuit dont la batterie de séquences révèle une mémoire a une signature
-        séquentielle ; les autres ont leur table de vérité.
+        Un circuit dont la batterie de séquences révèle une mémoire, ou qui a une CLK, a
+        une signature séquentielle ; les autres ont leur table de vérité.
         """
         flat = flatten(circuit, self._definitions_view)
         input_count = len(circuit.inputs())
@@ -189,7 +189,7 @@ class Library:
                 "Le circuit oscille pendant la batterie de séquences : il n'a pas de "
                 "signature et ne peut pas devenir un composant."
             )
-        if battery is not None and battery.memory:
+        if battery is not None and (battery.memory or battery.clocked):
             form: CanonicalForm | SequentialForm = sequential_form(battery, input_count)
             return _Candidate(circuit, flat.nand_count(), form)
         table = truth_table(flat)

@@ -50,21 +50,25 @@ FIRST_CHALLENGE_STAGE = 4
 
 @dataclass(frozen=True)
 class Stage:
-    """Un palier : son numéro, ses maximums d'entrées et de sorties, ses boucles.
+    """Un palier : son numéro, ses maximums d'entrées et de sorties, boucles et CLK.
 
-    Les paliers 1 à 3 n'ont pas de boucle. Un palier qui en permet (``allow_loops``)
-    laisse l'IA construire des circuits à mémoire.
+    Les paliers 1 à 3 n'ont ni boucle ni CLK. Un palier qui permet les boucles
+    (``allow_loops``) ou la CLK (``allow_clock``) laisse l'IA construire des circuits à
+    mémoire.
     """
 
     number: int
     max_inputs: int
     max_outputs: int
     allow_loops: bool = False
+    allow_clock: bool = False
 
     @property
     def rules(self) -> MutationRules:
         """Renvoie les réglages de mutation de ce palier."""
-        return MutationRules(self.max_inputs, self.max_outputs, self.allow_loops)
+        return MutationRules(
+            self.max_inputs, self.max_outputs, self.allow_loops, self.allow_clock
+        )
 
 
 # Cahier, « Les paliers » : 1, 2 et 3 entrées, une seule sortie.

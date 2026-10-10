@@ -9,7 +9,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from logicai.circuit import Circuit
-from logicai.simulation import Status, settle
+from logicai.errors import SimulationError
+from logicai.simulation import Plan, Status, compile_circuit, settle
 
 # Masque d'une seule combinaison d'entrées : les signaux valent 0 ou 1.
 _SINGLE_COMBINATION_MASK = 1
@@ -73,7 +74,11 @@ def truth_table(circuit: Circuit) -> TruthTable:
 
 @dataclass(frozen=True)
 class StepResult:
-    """Un pas d'une séquence : vecteur d'entrée appliqué, sorties et statut."""
+    """Un pas d'une séquence : vecteur d'entrée appliqué, sorties et statut.
+
+    Avec une horloge, ``inputs`` se termine par la valeur de la CLK : deux pas ne sont
+    « la même entrée » que si la CLK aussi a la même valeur.
+    """
 
     inputs: tuple[int, ...]
     outputs: tuple[int, ...]
@@ -91,19 +96,39 @@ class SequenceResult:
     steps: tuple[StepResult, ...]
 
 
-def run_sequence(circuit: Circuit, steps: Sequence[Sequence[int]]) -> SequenceResult:
+def run_sequence(
+    circuit: Circuit,
+    steps: Sequence[Sequence[int]],
+    clocks: Sequence[int] | None = None,
+    plan: Plan | None = None,
+) -> SequenceResult:
     """Applique une suite de vecteurs d'entrée, un par pas, sur une seule combinaison.
 
     Le départ est tout à 0 et l'état est conservé d'un pas au suivant. Chaque pas
     tourne jusqu'à la stabilité (règle de ``settle``). Tous les pas sont simulés,
     même après un pas instable : l'état repris est alors celui du dernier top calculé.
+
+    Un circuit qui a une CLK reçoit ``clocks`` : la valeur de l'horloge à chaque pas
+    (un pas = une demi-période, plus longue que T_max). Le circuit est préparé une seule
+    fois pour toute la séquence ; pour en jouer beaucoup, on peut donner ``plan`` (voir
+    ``compile_circuit``).
     """
+    if clocks is not None and len(clocks) != len(steps):
+        raise SimulationError(
+            f"Il faut une valeur d'horloge par pas : {len(steps)} pas, "
+            f"{len(clocks)} valeurs."
+        )
+    prepared = plan if plan is not None else compile_circuit(circuit)
     state: tuple[int, ...] | None = None
     results: list[StepResult] = []
-    for vector in steps:
-        settled = settle(circuit, vector, _SINGLE_COMBINATION_MASK, state)
+    for index, vector in enumerate(steps):
+        clock = None if clocks is None else clocks[index]
+        settled = settle(
+            circuit, vector, _SINGLE_COMBINATION_MASK, state, clock, prepared
+        )
         state = settled.state
-        results.append(StepResult(tuple(vector), settled.outputs, settled.status))
+        seen = tuple(vector) if clock is None else (*vector, clock)
+        results.append(StepResult(seen, settled.outputs, settled.status))
     unstable = any(step.status is Status.UNSTABLE for step in results)
     status = Status.UNSTABLE if unstable else Status.STABLE
     return SequenceResult(status, tuple(results))
