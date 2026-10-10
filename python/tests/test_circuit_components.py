@@ -1,18 +1,22 @@
 """Tests des nœuds composants, de la copie et du rechargement d'un circuit."""
 
+import itertools
 from collections.abc import Callable
 
 import pytest
 
-from builders import add_nand, wire
+from builders import add_nand, build_mux, gate, wire
+from logicai.behavior import truth_table
 from logicai.circuit import Circuit, Node, NodeKind, Pin, Wire
 from logicai.errors import (
+    InvalidInputOrderError,
     InvalidNodeError,
     SinkAlreadyConnectedError,
     UnknownNodeError,
     UnknownPinError,
     WrongPinKindError,
 )
+from logicai.signature import permute_inputs
 
 
 def _snapshot(circuit: Circuit) -> tuple[tuple[Node, ...], tuple[Wire, ...]]:
@@ -205,3 +209,55 @@ def test_from_parts_applies_the_wiring_rules() -> None:
         Circuit.from_parts(nodes, [unknown_node])
     with pytest.raises(SinkAlreadyConnectedError):
         Circuit.from_parts(nodes, two_wires_on_one_sink)
+
+
+# --- Réordonner les entrées ------------------------------------------------------
+
+
+def _mux() -> Circuit:
+    """Multiplexeur à 3 entrées, dont les rôles sont tous différents."""
+    return gate(3, build_mux)
+
+
+@pytest.mark.parametrize("order", list(itertools.permutations(range(3))))
+def test_reordering_inputs_matches_permute_inputs(order: tuple[int, ...]) -> None:
+    # Règle vérifiée : décision du plan (ordre des broches conservé lors d'un record) :
+    # réordonner les entrées d'un circuit permute sa table comme ``permute_inputs``.
+    circuit = _mux()
+    reordered = circuit.with_inputs_reordered(order)
+    expected = permute_inputs(truth_table(circuit).outputs, 3, order)
+    assert truth_table(reordered).outputs == expected
+
+
+def test_reordering_keeps_nodes_and_original_circuit() -> None:
+    # Règle vérifiée : CLAUDE.md (une opération n'abîme pas ses données) ; les nœuds
+    # gardent leur identifiant et leur place, seuls les câbles des entrées changent.
+    circuit = _mux()
+    before = _snapshot(circuit)
+    reordered = circuit.with_inputs_reordered((2, 0, 1))
+    assert _snapshot(circuit) == before
+    assert reordered.nodes() == circuit.nodes()
+    assert reordered.wires() != circuit.wires()
+
+
+def test_identity_order_changes_nothing() -> None:
+    # Règle vérifiée : décision du plan (ordre des broches conservé).
+    circuit = _mux()
+    assert _snapshot(circuit.with_inputs_reordered((0, 1, 2))) == _snapshot(circuit)
+
+
+def test_reordering_then_inverse_order_gives_back_the_circuit() -> None:
+    # Règle vérifiée : décision du plan (ordre des broches conservé).
+    circuit = _mux()
+    order = (2, 0, 1)  # son inverse est (1, 2, 0)
+    back = circuit.with_inputs_reordered(order).with_inputs_reordered((1, 2, 0))
+    assert _snapshot(back) == _snapshot(circuit)
+
+
+@pytest.mark.parametrize("order", [(0, 1), (0, 0, 1), (0, 1, 3), (1, 2, 3)])
+def test_input_order_that_is_not_a_permutation_is_refused(
+    order: tuple[int, ...],
+) -> None:
+    # Règle vérifiée : CLAUDE.md (un refus dit ce qui est refusé et pourquoi).
+    with pytest.raises(InvalidInputOrderError):
+        _mux().with_inputs_reordered(order)

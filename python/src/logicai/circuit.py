@@ -11,6 +11,7 @@ from enum import Enum, auto
 from typing import NamedTuple, Self
 
 from logicai.errors import (
+    InvalidInputOrderError,
     InvalidNodeError,
     SinkAlreadyConnectedError,
     SinkNotConnectedError,
@@ -194,6 +195,33 @@ class Circuit:
         clone._wires = dict(self._wires)
         clone._next_id = self._next_id
         return clone
+
+    def with_inputs_reordered(self, order: Sequence[int]) -> Self:
+        """Renvoie une copie où l'entrée j joue le rôle de l'entrée ``order[j]``.
+
+        Même convention que ``permute_inputs`` (module ``signature``) : la table de
+        vérité de la copie est celle de l'original avec ses entrées permutées de la
+        même façon. Les nœuds gardent leur identifiant et leur place ; seuls les câbles
+        qui partent des entrées changent de source. Le circuit n'est pas modifié.
+        """
+        inputs = self.inputs()
+        if sorted(order) != list(range(len(inputs))):
+            raise InvalidInputOrderError(
+                f"L'ordre {tuple(order)} n'est pas une permutation "
+                f"des {len(inputs)} entrées."
+            )
+        new_id_of = {inputs[order[j]]: inputs[j] for j in range(len(inputs))}
+        wires = [
+            Wire(
+                Pin(
+                    new_id_of.get(wire.source.node_id, wire.source.node_id),
+                    wire.source.index,
+                ),
+                wire.sink,
+            )
+            for wire in self.wires()
+        ]
+        return type(self).from_parts(self.nodes(), wires)
 
     def add_node(self, kind: NodeKind) -> int:
         """Ajoute un nœud INPUT, OUTPUT ou NAND et renvoie son identifiant."""

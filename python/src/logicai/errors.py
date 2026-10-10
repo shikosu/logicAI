@@ -33,6 +33,10 @@ class InvalidNodeError(CircuitError):
     """Le nœud demandé n'est pas valide (type, nombre de broches, référence...)."""
 
 
+class InvalidInputOrderError(CircuitError):
+    """L'ordre donné pour les entrées n'est pas une permutation des entrées."""
+
+
 class FlattenError(Exception):
     """Base des refus de l'aplatissement d'un circuit qui contient des composants."""
 
@@ -59,3 +63,27 @@ class SimulationError(Exception):
 
 class SignatureError(Exception):
     """La signature ne peut pas être calculée avec ces données."""
+
+
+class LibraryError(Exception):
+    """Base des refus de la bibliothèque de composants."""
+
+
+class InvalidLimitsError(LibraryError):
+    """Les limites demandées pour la bibliothèque ne sont pas valides."""
+
+
+class NoOutputError(LibraryError):
+    """Un circuit sans sortie n'a rien d'observable : pas de composant possible."""
+
+
+class ComponentTooLargeError(LibraryError):
+    """Le circuit a plus d'entrées ou de sorties que la bibliothèque ne l'autorise."""
+
+
+class UnstableCircuitError(LibraryError):
+    """Le circuit est instable : sa signature n'est pas définie (cahier : rejeté)."""
+
+
+class UnknownComponentNameError(LibraryError):
+    """Aucun composant de la bibliothèque ne porte ce nom."""

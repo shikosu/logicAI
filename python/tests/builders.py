@@ -58,6 +58,49 @@ def build_xor(circuit: Circuit, i: list[int]) -> int:
     return add_nand(circuit, n2, n3)
 
 
+def build_and_not(circuit: Circuit, i: list[int]) -> int:
+    """Construit A ET NON B : 3 NAND."""
+    return add_not(circuit, add_nand(circuit, i[0], add_not(circuit, i[1])))
+
+
+def build_not_and(circuit: Circuit, i: list[int]) -> int:
+    """NON A ET B : 3 NAND. Même fonction que ``build_and_not``, entrées échangées."""
+    return add_not(circuit, add_nand(circuit, add_not(circuit, i[0]), i[1]))
+
+
+def build_mux(circuit: Circuit, i: list[int]) -> int:
+    """Multiplexeur : (entrée 0 ? entrée 2 : entrée 1), 4 NAND."""
+    select, low, high = i
+    return add_nand(
+        circuit,
+        add_nand(circuit, add_not(circuit, select), low),
+        add_nand(circuit, select, high),
+    )
+
+
+def build_mux_rotated(circuit: Circuit, i: list[int]) -> int:
+    """Le même multiplexeur, mais câblé avec les entrées dans un autre ordre."""
+    return build_mux(circuit, [i[1], i[2], i[0]])
+
+
+def build_mux_with_roles(roles: tuple[int, int, int]) -> Builder:
+    """Multiplexeur dont (sélecteur, bas, haut) sont les entrées roles[0], [1], [2]."""
+
+    def build(circuit: Circuit, inputs: list[int]) -> int:
+        return build_mux(circuit, [inputs[role] for role in roles])
+
+    return build
+
+
+def bloated(build: Builder) -> Builder:
+    """Ajoute deux NOT en série à la sortie d'une porte (2 NAND de plus)."""
+
+    def build_bloated(circuit: Circuit, inputs: list[int]) -> int:
+        return add_not(circuit, add_not(circuit, build(circuit, inputs)))
+
+    return build_bloated
+
+
 def not_circuit() -> Circuit:
     """NOT : 1 entrée, 1 NAND, 1 sortie."""
     return gate(1, build_not)
