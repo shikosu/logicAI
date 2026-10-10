@@ -27,3 +27,7 @@ class SinkAlreadyConnectedError(CircuitError):
 
 class SinkNotConnectedError(CircuitError):
     """Le puits n'a pas de câble, il n'y a donc rien à déconnecter."""
+
+
+class SimulationError(Exception):
+    """La simulation ne peut pas tourner avec ces données (entrées, état, masque)."""
