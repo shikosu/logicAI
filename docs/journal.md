@@ -87,9 +87,35 @@ La 1re série de mutations avait laissé survivre 7 erreurs : 3 trous de **mes t
 `circuit`), 3 mécanismes redondants (simplifiés, voir ci-dessus), et 1 équivalente : ne pas fermer explicitement la socket d'écoute à l'arrêt revient au même en CPython (elle est fermée à la destruction de l'objet) ;
 je garde la fermeture explicite.
 
+### Étape 4 faite : ce qu'on montre et à quel rythme (`live_show.py`, `live_director.py`, tests, `errors.py`)
+
+**`live_show.py` — ce qu'on montre.** `trial_messages(circuit, definitions)` : un message `circuit` (le circuit **aplati puis nettoyé**, nom `essai`, avec ses positions) suivi, pour chaque combinaison d'entrées,
+des messages `etat` **top par top**, du top 0 au premier top stable (ou jusqu'à T_max + 1 si le circuit est instable). L'entrée i de la combinaison k vaut le bit i de k (convention des tables de vérité) ; au plus
+8 combinaisons (`MAX_SHOWN_COMBINATIONS`). Aplati parce que les valeurs ne sont pas suivies dans un composant (limite de la phase 3) ; nettoyé pour montrer ce que le simulateur garde.
+Les images du NOT (A = 0 : top 0 la NAND vaut encore 0, top 1 elle vaut 1 ; A = 1 : déjà stable) ont été calculées **à la main** d'après le cahier avant de lancer le test, et le code les redonne.
+
+**`live_director.py` — quand.** `LiveDirector(send, clock, trial_interval, frame_interval, stats_interval)`. Le fil d'entraînement ne fait que des appels courts : `wants_trial()`, `offer_trial(messages)`,
+`announce_discovery(message)`, `update_stats(message)` ; il construit lui-même les messages (donc seul à toucher à la bibliothèque, pas de course). Un fil de présentation (`start`/`stop`) appelle `pump()` toutes les 20 ms :
+un message par image toutes les `frame_interval` secondes (le 1er tout de suite, jamais deux d'un coup, même en retard) ; un nouvel essai n'est voulu que `trial_interval` après la dernière image ; stats au plus toutes les
+`stats_interval` s et seulement si elles sont nouvelles ; découvertes envoyées au prochain `pump`, dans l'ordre, sans perturber le rythme des images. Une erreur d'envoi est journalisée et ignorée par le fil.
+Horloge injectée : les tests utilisent une fausse horloge, sans attente réelle.
+
+**Valeurs de départ (à régler par essais, de ma main)** : 3 s de pause entre deux essais montrés, 0,5 s par image, stats au plus 1 par seconde. À titre d'ordre de grandeur, un essai à 2 entrées dure de l'ordre de 5 à 6 s.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `50 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 23 source files` |
+| `pytest` | `854 passed` en environ 66 s (822 avant, 32 nouveaux : 13 + 19 ; 0,5 s pour ces deux fichiers) |
+| Mutations (copie hors du projet) | `live_show.py` 13 erreurs volontaires, 13 détectées ; `live_director.py` 23, 23 détectées |
+
+Deux trous de **mes tests**, trouvés par les mutations et comblés : le nom `essai` n'était comparé qu'à la constante qui le définit (donc toujours vrai) ; il est maintenant écrit en dur, car Unity l'affiche dans sa ligne d'état ;
+et proposer une suite vide pendant un essai en cours (qui doit être ignorée sans interrompre l'essai) n'était testé qu'au repos.
+
 ### Ce qui reste
 
-Étapes 4 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+Étapes 5 et 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
 
 ---
 

@@ -131,3 +131,7 @@ class InvalidPlacementError(ProtocolError):
 
 class LiveServerError(ProtocolError):
     """Le serveur de la liaison avec Unity ne peut pas démarrer ou est mal utilisé."""
+
+
+class InvalidDirectorSettingsError(ProtocolError):
+    """Les réglages du directeur de l'affichage en direct ne sont pas valides."""
