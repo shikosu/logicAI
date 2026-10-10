@@ -275,7 +275,7 @@ Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses, cr
 
 **Preuve de Téo (10 octobre 2026)** : `tools/run_unity_tests.sh EditMode` → `{'total': '163', 'passed': '163', 'failed': '0', 'skipped': '0'}`, total conforme à 117 + 46.
 
-### Étape 9b écrite : intégration dans le visualiseur (**NON compilée, NON testée : à vérifier par Téo**)
+### Étape 9b faite : intégration dans le visualiseur (écrite ici, **tests vérifiés par Téo : EditMode 178 sur 178, PlayMode 5 sur 5** ; reste sa vérification visuelle)
 
 Fichiers modifiés ou créés (aucun `.meta`, ni scène, ni `ProjectSettings/`, ni `Packages/`) :
 
@@ -302,12 +302,41 @@ Défauts vus en relisant mon code, avant tout test : (1) le test PlayMode utilis
 
 **Ce que l'IMGUI ne permet pas de tester** (à voir par Téo à l'écran) : la disposition du panneau (boutons, liste, commandes), les couleurs, la lisibilité du texte, le cadrage de la caméra pendant la rediffusion, la fluidité.
 
-Ce que j'ai vérifié ici : accolades, parenthèses, crochets équilibrés dans les 5 fichiers ; les nombres de tests (13 + 2 + 3) ; la ligne PlayMode identique à l'échantillon ; aucune ambiguïté `Object` (pas de `using System;` dans les tests qui utilisent `UnityEngine`) ;
-aucun appel restant à l'ancien `FitCamera()`. **Ce que je n'ai pas pu vérifier : que le C# compile et que les tests passent.** Totaux attendus : **EditMode 163 + 2 + 13 = 178**, **PlayMode 2 + 3 = 5**.
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses, crochets équilibrés dans les 5 fichiers ; les nombres de tests (13 + 2 + 3) ; la ligne PlayMode identique à l'échantillon ; aucune ambiguïté `Object` (pas de `using System;` dans les tests qui utilisent `UnityEngine`) ;
+aucun appel restant à l'ancien `FitCamera()`.
+
+**Preuve de Téo (10 octobre 2026)**, totaux conformes aux comptes attendus (163 + 2 + 13 et 2 + 3) :
+
+| Commande | Résultat |
+| --- | --- |
+| `tools/run_unity_tests.sh EditMode` | `{'total': '178', 'passed': '178', 'failed': '0', 'skipped': '0'}` |
+| `tools/run_unity_tests.sh PlayMode` | `{'total': '5', 'passed': '5', 'failed': '0', 'skipped': '0'}` |
+
+Le C# compile, la liaison réseau, le modèle, le viewer en direct, le vrai `Update` et la fermeture à la destruction sont donc prouvés par les tests. **Les tests ne prouvent pas** la disposition du panneau, les couleurs, la lisibilité, le cadrage ni la fluidité (IMGUI) : voir la vérification visuelle ci-dessous.
+
+### Couverture du cahier par la phase 5
+
+| Exigence du cahier | Où |
+| --- | --- |
+| « Un essai en direct au ralenti » (seul un essai à la fois est envoyé) | `live_show.py`, `live_director.py` ; côté Unity `LiveModel` + `CircuitViewer` (mode En direct) |
+| « La rediffusion de chaque découverte » (nœuds dans l'ordre des signaux, puis câbles) | `replay.py` ; côté Unity `LivePlacement` + `LiveModel` (lecture, pause, pas à pas) |
+| Interface : bibliothèque, statistiques, bascule entre le direct et les rediffusions | `CircuitViewer` : panneau « En direct », boutons `Direct` et bibliothèque cliquable |
+| Messages `circuit`, `etat`, `decouverte`, `stats` ; `action` laissé à la phase 7 | `protocol.py` ; `LiveMessages.cs` |
+| Test : « on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse » | Mesuré côté Python (`test_phase5.py` : l'affichage ne ralentit pas l'IA) ; **à voir à l'écran par Téo** |
+
+### Vérification visuelle demandée à Téo (dernière condition pour clore la phase 5)
+
+1. `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live --seed 1` (graine 1 : choisie parce qu'elle trouve le XOR directement en 4 NAND ; sur 8 graines essayées de 0 à 7, toutes découvrent NOT puis le palier 2).
+2. Unity : Play, clic sur « En direct ». Attendu : « Connecté à Python », statistiques qui avancent, bibliothèque remplie d'un coup (historique), puis des essais colorés qui défilent (compter jusqu'à environ 9 s pour le premier).
+3. Clic sur NOT, puis XOR dans la bibliothèque : le circuit se pose pièce par pièce (nœuds, puis câbles) ; essayer `<`, `Pause`/`Lecture`, `>`, `Début`, `Direct`.
+4. Lancer Unity avant Python : « Python ne répond pas », puis « Connecté » au lancement de la commande. Relancer Python : la bibliothèque repart de la nouvelle session.
+5. Noter tout ce qui est illisible ou mal cadré (le réglage `ReplayStepSeconds` = 0,4 s est une valeur de départ).
 
 ### Ce qui reste
 
-- **Étape 9b : preuve de Téo** (`tools/run_unity_tests.sh EditMode` → 178, puis `tools/run_unity_tests.sh PlayMode` → 5), **puis sa vérification visuelle** : `python -m logicai.live`, Play, clic sur « En direct ». (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
+- **Vérification visuelle de Téo** (ci-dessus) : la phase 5 n'est close qu'après elle.
+- Réglages à ajuster selon ce qu'il voit : vitesse de rediffusion, rythme des essais (3 s / 0,5 s), lisibilité du panneau.
+- Pour Téo, à décider : mettre à jour la section « Commandes vérifiées » de `CLAUDE.md` (compte de tests Unity : 65 → 178 EditMode, 2 → 5 PlayMode ; ajouter `python -m logicai.live`). Je n'y touche pas sans son accord. (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
 ---
