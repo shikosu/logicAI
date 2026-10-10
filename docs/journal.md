@@ -243,7 +243,7 @@ Mes deux paris (fermeture détectée par `Poll` + `Available == 0` ; port libér
 
 Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python inchangée depuis les derniers contrôles verts (875 tests).
 
-### Étape 9a écrite : la logique de l'affichage en direct (**NON compilée, NON testée : à vérifier par Téo**)
+### Étape 9a faite : la logique de l'affichage en direct (écrite ici, **vérifiée par Téo : 163 tests sur 163 verts**)
 
 Plan validé par Téo (« go ») : l'étape 9 est coupée en **9a** (logique, sans dessin ni réseau) et **9b** (intégration dans `CircuitViewer` et interface). Trois choix de Téo (valeurs par défaut acceptées) :
 le direct démarre par un **clic sur « En direct »** (pas au Play : un test PlayMode exige que le viewer démarre comme avant, et un viewer qui se connecterait tout seul volerait la connexion pendant les tests) ;
@@ -271,13 +271,43 @@ Règles du modèle (chacune a au moins un test) :
 Défaut vu en relisant mon code, avant tout test : `CircuitLoader.Validate` ignore les valeurs si les tableaux de l'`etat` sont nuls ; un message construit sans passer par le parseur aurait donc été accepté sans vérification de taille.
 Garde ajoutée dans `ApplyState` (et testée).
 
-Ce que j'ai vérifié ici : accolades, parenthèses, crochets équilibrés ; le nombre de tests (46) ; chaque chaîne remplacée dans les échantillons existe exactement une fois ; chaque test relu contre le code (versions, ordre des étapes, arrondis des flottants :
-je n'ai utilisé que des durées exactes en flottant, comme la moitié ou les 3,25 pas). **Ce que je n'ai pas pu vérifier : que le C# compile et que les 46 tests passent.** Total attendu : **117 + 46 = 163**.
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses, crochets équilibrés ; le nombre de tests (46) ; chaque chaîne remplacée dans les échantillons existe exactement une fois ; chaque test relu contre le code (durées exactes en flottant : moitié de pas, 3,25 pas).
+
+**Preuve de Téo (10 octobre 2026)** : `tools/run_unity_tests.sh EditMode` → `{'total': '163', 'passed': '163', 'failed': '0', 'skipped': '0'}`, total conforme à 117 + 46.
+
+### Étape 9b écrite : intégration dans le visualiseur (**NON compilée, NON testée : à vérifier par Téo**)
+
+Fichiers modifiés ou créés (aucun `.meta`, ni scène, ni `ProjectSettings/`, ni `Packages/`) :
+
+- `Assets/Scripts/Runtime/CircuitViewer.cs` (modifié) : deux modes, `ViewerMode.Files` (le comportement de la phase 3, **inchangé** : mêmes méthodes, mêmes tests) et `ViewerMode.Live`. Boutons « Fichiers » / « En direct » en haut du panneau.
+  `Tick(deltaTime)` (appelé par `Update`, public pour les tests) : exécute l'action demandée par un bouton, fait avancer la rediffusion (temps d'image limité à 1 s), lit les lignes de Python (`ProcessIncoming`, au plus 2000 par image),
+  puis redessine seulement si `LiveModel.Version` a changé et recadre la caméra seulement si la cible a changé. Une ligne illisible est comptée (`RejectedLines`) et affichée, sans rien planter.
+  Panneau « En direct » : état de la liaison, statistiques, bibliothèque cliquable (un clic lance la rediffusion), commandes `<` `Pause`/`Lecture` `>` `Début` `Direct`. Le texte du haut vient de `LiveModel.Caption`.
+- `Assets/Scripts/Runtime/LiveConnection.cs` (modifié) : `TryDequeue(out ligne, out connexion)` et `ConnectionCount`. Le numéro de connexion est attaché à chaque ligne **par le fil de lecture**, donc l'ordre est exact.
+  L'ancien `TryDequeue(out ligne)` est conservé tel quel (les 18 tests de l'étape 8 ne sont pas touchés).
+- Tests : `LiveConnectionTests.cs` (+2), `CircuitViewerLiveTests.cs` (13, EditMode, avec un faux Python) et `CircuitViewerLivePlayModeTests.cs` (3, PlayMode : le vrai `Update`, la fermeture à la destruction, et le démarrage en mode Fichiers).
+
+Choix de conception et pourquoi :
+
+| Choix | Raison |
+| --- | --- |
+| Démarrage en mode Fichiers, **pas de connexion automatique** | Un test PlayMode exige l'ancien démarrage ; et se connecter tout seul volerait la liaison d'un autre Unity (Python n'accepte qu'un client) |
+| **Numéro de connexion attaché à chaque ligne**, `Reset` du modèle au changement de numéro | Python relancé pendant que Unity n'a pas le focus : `Update` ne tourne pas, la connexion tombe et revient sans que le viewer le voie. Sans le numéro, des lignes de l'ancien run se mêlaient à celles du nouveau |
+| Boutons : l'action est **demandée** pendant `OnGUI` et exécutée dans `Update` | Changer le nombre de boutons pendant `OnGUI` fait échouer la mise en page d'IMGUI |
+| **Pas de `Application.runInBackground = true`** | Je l'avais annoncé à Téo ; je ne l'ai pas fait : dans l'éditeur, ce réglage peut écrire dans `ProjectSettings/` (non vérifié ici), que je ne dois pas modifier. À la place, le viewer lit tout ce qui est arrivé d'un coup quand il reprend la main. Conséquence : le dessin se fige si la fenêtre Unity perd le focus ; Téo peut cocher « Run In Background » lui-même dans Project Settings |
+| Tests EditMode : `viewer.EnterFilesMode()` dans le `TearDown` | `OnDestroy` ne s'exécute probablement pas en EditMode : sans cela, un fil de connexion resterait vivant et pourrait se brancher sur le serveur d'un autre test |
+
+Défauts vus en relisant mon code, avant tout test : (1) le test PlayMode utilisait `LiveSamples`, qui est dans l'assembly EditMode (invisible depuis PlayMode) : la ligne est maintenant copiée (identique, vérifiée par script) ;
+(2) attente imbriquée (`yield return` d'un autre `IEnumerator`) remplacée par des boucles directes, dont le comportement ne dépend pas du lanceur de tests ; (3) la reconnexion à froid décrite ci-dessus (numéro de connexion).
+
+**Ce que l'IMGUI ne permet pas de tester** (à voir par Téo à l'écran) : la disposition du panneau (boutons, liste, commandes), les couleurs, la lisibilité du texte, le cadrage de la caméra pendant la rediffusion, la fluidité.
+
+Ce que j'ai vérifié ici : accolades, parenthèses, crochets équilibrés dans les 5 fichiers ; les nombres de tests (13 + 2 + 3) ; la ligne PlayMode identique à l'échantillon ; aucune ambiguïté `Object` (pas de `using System;` dans les tests qui utilisent `UnityEngine`) ;
+aucun appel restant à l'ancien `FitCamera()`. **Ce que je n'ai pas pu vérifier : que le C# compile et que les tests passent.** Totaux attendus : **EditMode 163 + 2 + 13 = 178**, **PlayMode 2 + 3 = 5**.
 
 ### Ce qui reste
 
-- **Étape 9a : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, total attendu 163).
-- Étape 9b : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
+- **Étape 9b : preuve de Téo** (`tools/run_unity_tests.sh EditMode` → 178, puis `tools/run_unity_tests.sh PlayMode` → 5), **puis sa vérification visuelle** : `python -m logicai.live`, Play, clic sur « En direct ». (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
 ---

@@ -35,10 +35,17 @@ namespace LogicAI
         const int PollMicroseconds = 100000;
         const int StopTimeoutMilliseconds = 2000;
 
+        // Une ligne reçue, avec le numéro de la connexion qui l'a apportée (1 pour la première).
+        struct ReceivedLine
+        {
+            public int Connection;
+            public string Text;
+        }
+
         readonly int port;
         readonly int retryMilliseconds;
         readonly int maxLineBytes;
-        readonly ConcurrentQueue<string> lines = new ConcurrentQueue<string>();
+        readonly ConcurrentQueue<ReceivedLine> lines = new ConcurrentQueue<ReceivedLine>();
         readonly object gate = new object();
 
         Thread thread;
@@ -46,6 +53,7 @@ namespace LogicAI
         Socket current;
         volatile bool connected;
         volatile string lastError;
+        volatile int connectionCount;
 
         public LiveConnection(int port = DefaultPort, int retryMilliseconds = DefaultRetryMilliseconds, int maxLineBytes = DefaultMaxLineBytes)
         {
@@ -70,6 +78,12 @@ namespace LogicAI
         public bool IsConnected
         {
             get { return connected; }
+        }
+
+        // Le nombre de connexions réussies depuis le début (0 avant la première).
+        public int ConnectionCount
+        {
+            get { return connectionCount; }
         }
 
         // La raison du dernier échec de connexion (nulle quand on est connecté ou avant le
@@ -131,7 +145,25 @@ namespace LogicAI
         // Rend la prochaine ligne reçue (sans le retour à la ligne), ou faux s'il n'y en a pas.
         public bool TryDequeue(out string line)
         {
-            return lines.TryDequeue(out line);
+            int connection;
+            return TryDequeue(out line, out connection);
+        }
+
+        // Pareil, avec le numéro de la connexion qui a apporté la ligne. Quand ce numéro change, Python
+        // a été relancé (ou la liaison a été coupée) : les lignes qui suivent viennent d'une nouvelle session.
+        // Le fil de lecture est seul à le fixer : l'ordre est exact, même si Unity ne lit la file qu'après coup.
+        public bool TryDequeue(out string line, out int connection)
+        {
+            ReceivedLine received;
+            if (lines.TryDequeue(out received))
+            {
+                line = received.Text;
+                connection = received.Connection;
+                return true;
+            }
+            line = null;
+            connection = 0;
+            return false;
         }
 
         // Le fil : se connecte, lit jusqu'à la coupure, attend, recommence, jusqu'à l'arrêt.
@@ -147,6 +179,7 @@ namespace LogicAI
                         return;
                     }
                     socket.Connect(IPAddress.Loopback, port);
+                    connectionCount++;
                     lastError = null;
                     connected = true;
                     ReadLines(socket, signal);
@@ -248,7 +281,7 @@ namespace LogicAI
             {
                 return;
             }
-            lines.Enqueue(Encoding.UTF8.GetString(line.ToArray()));
+            lines.Enqueue(new ReceivedLine { Connection = connectionCount, Text = Encoding.UTF8.GetString(line.ToArray()) });
         }
     }
 }

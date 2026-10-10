@@ -353,6 +353,54 @@ namespace LogicAI.Tests
             Assert.AreEqual("retour", NextLine());
         }
 
+        // --- Numéro de connexion ----------------------------------------------------------
+
+        // Lit la prochaine ligne avec le numéro de la connexion qui l'a apportée (clé = numéro, valeur = ligne).
+        KeyValuePair<int, string> NextLineWithConnection()
+        {
+            string line = null;
+            int number = 0;
+            WaitFor(() => connection.TryDequeue(out line, out number), "une ligne reçue");
+            return new KeyValuePair<int, string>(number, line);
+        }
+
+        [Test]
+        public void ConnectionCount_CountsTheSuccessfulConnections()
+        {
+            connection = new LiveConnection(ListenerPort, FastRetryMilliseconds);
+            Assert.AreEqual(0, connection.ConnectionCount);
+            connection.Start();
+
+            TcpClient first = Accept();
+            WaitFor(() => connection.ConnectionCount == 1, "la 1re connexion");
+            first.Close();
+            Accept();
+
+            WaitFor(() => connection.ConnectionCount == 2, "la 2e connexion");
+        }
+
+        [Test]
+        public void Lines_CarryTheNumberOfTheirConnection()
+        {
+            // Règle vérifiée : une ligne de l'ancienne session ne se mélange pas à celles de la nouvelle
+            // (Python relancé pendant que Unity n'a pas le focus), même si Unity ne lit la file qu'après coup.
+            StartConnection(ListenerPort);
+            TcpClient first = Accept();
+            SendText(first, "ancienne\n");
+            first.Close();
+            TcpClient second = Accept();
+            SendText(second, "nouvelle\n");
+            WaitFor(() => connection.ConnectionCount == 2, "la 2e connexion");
+
+            KeyValuePair<int, string> old = NextLineWithConnection();
+            KeyValuePair<int, string> fresh = NextLineWithConnection();
+
+            Assert.AreEqual("ancienne", old.Value);
+            Assert.AreEqual(1, old.Key);
+            Assert.AreEqual("nouvelle", fresh.Value);
+            Assert.AreEqual(2, fresh.Key);
+        }
+
         // --- Réglages refusés ------------------------------------------------------------
 
         [Test]
