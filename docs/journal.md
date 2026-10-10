@@ -137,9 +137,47 @@ Trous de **mes tests**, trouvés par les mutations et comblés : (1) mes essais 
 plus de NAND, puis réduit) et ajouté un test qui exige un `record` après sa `nouveaute`, moins cher ; (2) la graine n'était jamais vérifiée (tout tournait avec 0) ; (3) la commande ne vérifiait pas qu'elle libère le port ni qu'elle arrête ses
 fils en sortant ; (4) l'enfant « nettoyé » transmis à la place de l'enfant essayé : le contrat est maintenant figé par un test.
 
+### Étape 6 faite : test de la phase 5 côté Python (`tests/test_phase5.py`)
+
+Avec la vraie IA, le vrai serveur, le vrai fil de présentation et un faux Unity (client TCP), trois tests :
+
+1. **Unity ne change jamais ce que fait l'IA, et ne la ralentit pas.** 60 générations (50 essais chacune), même graine, dans cinq conditions : l'IA nue (référence : ni directeur, ni crochet, ni réseau), l'affichage sans réseau, sans client,
+   avec un client connecté qui **ne lit jamais**, avec un client qui lit. Les rapports de génération sont identiques dans les cinq, et chaque condition tient dans 1,5 fois le temps de l'IA nue plus 0,3 s.
+2. **Un Unity en retard ne manque rien** : lancé après l'IA, il reçoit toutes les découvertes, chacune une fois, dans l'ordre, et les dernières stats.
+3. **Unity peut partir et revenir pendant que l'IA continue** (IA dans un fil) : le Unity qui revient reçoit l'historique (NOT en premier) puis le direct, avec des générations plus avancées ; l'IA ne s'arrête pas.
+
+**Débits mesurés sur cette machine** (meilleur de 4 répétitions, 60 générations) :
+
+| Condition | Temps | Générations par seconde | Rapport à l'IA nue |
+| --- | --- | --- | --- |
+| IA nue (référence) | 0,762 s | 78,7 | 1,00 |
+| Affichage sans réseau | 0,743 s | 80,7 | 0,98 |
+| Serveur, aucun client | 0,729 s | 82,3 | 0,96 |
+| Client connecté qui ne lit **jamais** | 0,772 s | 77,7 | 1,01 |
+| Client qui lit | 0,776 s | 77,3 | 1,02 |
+
+Les écarts (de -4 % à +2 %) sont du bruit de mesure : **l'affichage, même avec un Unity qui ne lit rien, ne coûte rien de mesurable à l'entraînement** (environ 4 000 essais par seconde). La marge du test (1,5 fois + 0,3 s) est large pour éviter
+les faux échecs ; le test est stable (5 exécutions de suite, environ 11 s chacune). Le fait de comparer à l'IA nue (et non à l'affichage sans réseau) a été ajouté après réflexion : sinon un ralentissement présent dans toutes les conditions passait inaperçu.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `875 passed` en environ 80 s (872 avant, 3 nouveaux) |
+| Erreurs volontaires pour ce test | une pause de 20 ms dans `update_stats` (appelé par l'entraînement) : détectée ; l'affichage qui glisse un NAND dans la bibliothèque (il change l'IA) : détectée |
+
+Deux de mes erreurs volontaires étaient mal conçues et ont été refaites : réenregistrer un circuit déjà accepté ne change rien dans la bibliothèque, et glisser un NOT non plus (le NOT est déjà trouvé avant le premier essai montré). Une vraie interférence demandait un circuit que l'IA n'a
+pas encore (un NAND à 2 entrées). Une 3e, « préparer un essai à chaque essai accepté », survit à ce test (le coût reste sous 50 %), mais elle est détectée par `test_display_work_is_done_only_when_the_director_asks` (étape 5).
+
+### Bilan de la partie Python de la phase 5
+
+Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
+Téo le vérifie sur son Mac avec `tools/run_unity_tests.sh EditMode` puis `PlayMode`. La phase 5 ne sera jugée terminée qu'après la vérification visuelle dans Unity.
+
 ### Ce qui reste
 
-Étape 6 (Python : test de la phase côté Python, dont le débit d'entraînement avec un client qui ne lit pas) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+Étapes 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
 
 ---
 
