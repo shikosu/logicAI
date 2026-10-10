@@ -30,16 +30,21 @@ DEFAULT_STALLED_GENERATIONS = 400
 
 @dataclass(frozen=True)
 class Stage:
-    """Un palier : son numéro et le nombre maximal d'entrées et de sorties."""
+    """Un palier : son numéro, ses maximums d'entrées et de sorties, ses boucles.
+
+    Les paliers 1 à 3 n'ont pas de boucle. Un palier qui en permet (``allow_loops``)
+    laisse l'IA construire des circuits à mémoire.
+    """
 
     number: int
     max_inputs: int
     max_outputs: int
+    allow_loops: bool = False
 
     @property
     def rules(self) -> MutationRules:
-        """Renvoie les réglages de mutation de ce palier (sans boucle)."""
-        return MutationRules(self.max_inputs, self.max_outputs, allow_loops=False)
+        """Renvoie les réglages de mutation de ce palier."""
+        return MutationRules(self.max_inputs, self.max_outputs, self.allow_loops)
 
 
 # Cahier, « Les paliers » : 1, 2 et 3 entrées, une seule sortie.

@@ -17,12 +17,13 @@ La formule du cahier est ``R = R_nouveauté + R_record + R_mémoire + R_réutili
   ``k · N_NAND`` ne s'applique que sur une nouveauté ou un record ;
 - la réutilisation est un **bonus ajouté à la nouvelle découverte**, avec un compteur de
   réutilisations par composant ; il ne change pas les choix de l'IA (phase 4) ;
-- le terme mémoire vaut 0 (il arrive avec la phase 6).
+- le terme mémoire est un **bonus ajouté à la nouvelle découverte** quand son composant
+  est un circuit à mémoire (signature séquentielle, voir ``sequential``).
 
 Interprétations (à confirmer par Téo), pour ce que le cahier ne précise pas :
 
-- le bonus de réutilisation ne vaut que pour une **nouveauté** (« une nouvelle
-  découverte »), pas pour un record ;
+- le bonus de réutilisation et le bonus de mémoire ne valent que pour une **nouveauté**
+  (« une nouvelle découverte »), pas pour un record ;
 - il se compte **par composant distinct** posé dans le circuit gardé : poser trois fois
   NOT compte une réutilisation de NOT, pas trois ;
 - on compte les composants du circuit **après nettoyage** : un composant posé sans
@@ -39,7 +40,7 @@ from enum import Enum, auto
 from logicai.circuit import Circuit, NodeKind
 from logicai.cleanup import remove_useless_nodes
 from logicai.errors import InvalidRewardSettingsError
-from logicai.filters import Rejection, find_rejections
+from logicai.filters import Rejection, find_behavior_rejections
 from logicai.library import Library, Outcome
 
 # Valeurs de départ (à régler par essais) : nouveauté grande, record moyen,
@@ -48,6 +49,8 @@ DEFAULT_NOVELTY_REWARD = 100.0
 DEFAULT_RECORD_REWARD = 30.0
 DEFAULT_REUSE_BONUS = 5.0
 DEFAULT_NAND_COST = 1.0
+# Mémoire : « grand » dans le tableau du cahier, comme la nouveauté (à régler).
+DEFAULT_MEMORY_BONUS = 100.0
 
 # Récompense d'un essai refusé, ou ni nouveau ni plus petit.
 NO_REWARD = 0.0
@@ -55,12 +58,13 @@ NO_REWARD = 0.0
 
 @dataclass(frozen=True)
 class RewardSettings:
-    """Les poids de la formule : nouveauté, record, réutilisation, et k par NAND."""
+    """Les poids de la formule : nouveauté, record, réutilisation, NAND, mémoire."""
 
     novelty: float = DEFAULT_NOVELTY_REWARD
     record: float = DEFAULT_RECORD_REWARD
     reuse: float = DEFAULT_REUSE_BONUS
     nand_cost: float = DEFAULT_NAND_COST
+    memory: float = DEFAULT_MEMORY_BONUS
 
     def __post_init__(self) -> None:
         """Refuse un poids négatif."""
@@ -69,6 +73,7 @@ class RewardSettings:
             "record": self.record,
             "réutilisation": self.reuse,
             "coût d'une NAND": self.nand_cost,
+            "mémoire": self.memory,
         }
         for label, value in weights.items():
             if value < 0:
@@ -94,7 +99,8 @@ class TrialResult:
     sans effet sur la bibliothèque : pour ``NOTHING``, c'est le composant déjà connu).
     ``rejections`` donne les motifs des filtres ; avec ``REJECTED`` et aucun motif,
     c'est un circuit sans sortie. ``reused`` liste les composants réutilisés (une
-    nouveauté seulement).
+    nouveauté seulement). ``memory`` dit si le composant concerné est un circuit à
+    mémoire (le bonus, lui, ne s'ajoute qu'à une nouveauté).
     """
 
     kind: TrialKind
@@ -102,6 +108,7 @@ class TrialResult:
     name: str | None
     rejections: tuple[Rejection, ...] = ()
     reused: tuple[str, ...] = ()
+    memory: bool = False
 
 
 class RewardTracker:
@@ -124,16 +131,21 @@ class RewardTracker:
         ce n'est pas un essai « inutile », c'est une erreur de réglage.
         """
         kept = remove_useless_nodes(circuit)
-        rejections = find_rejections(kept, self._library.definitions())
+        rejections = find_behavior_rejections(kept, self._library.definitions())
         if rejections or not kept.outputs():
             return TrialResult(TrialKind.REJECTED, NO_REWARD, None, rejections)
         registration = self._library.register(circuit)
         if registration.outcome is Outcome.NEW:
             return self._new_discovery(registration.name)
+        memory = self._library.component(registration.name).has_memory
         if registration.outcome is Outcome.RECORD:
             reward = self._settings.record - self._size_penalty(registration.name)
-            return TrialResult(TrialKind.RECORD, reward, registration.name)
-        return TrialResult(TrialKind.NOTHING, NO_REWARD, registration.name)
+            return TrialResult(
+                TrialKind.RECORD, reward, registration.name, memory=memory
+            )
+        return TrialResult(
+            TrialKind.NOTHING, NO_REWARD, registration.name, memory=memory
+        )
 
     def reuse_count(self, name: str) -> int:
         """Renvoie combien de nouvelles découvertes ont réutilisé ce composant."""
@@ -141,15 +153,19 @@ class RewardTracker:
 
     def _new_discovery(self, name: str) -> TrialResult:
         """Renvoie le résultat d'une nouveauté et compte les composants réutilisés."""
-        reused = _distinct_components(self._library.component(name).circuit)
+        component = self._library.component(name)
+        reused = _distinct_components(component.circuit)
         for used in reused:
             self._reuse_counts[used] = self._reuse_counts.get(used, 0) + 1
         reward = (
             self._settings.novelty
             + self._settings.reuse * len(reused)
+            + (self._settings.memory if component.has_memory else NO_REWARD)
             - self._size_penalty(name)
         )
-        return TrialResult(TrialKind.NEW, reward, name, reused=reused)
+        return TrialResult(
+            TrialKind.NEW, reward, name, reused=reused, memory=component.has_memory
+        )
 
     def _size_penalty(self, name: str) -> float:
         """Renvoie ``k · N_NAND`` pour un composant (N_NAND = son coût aplati)."""

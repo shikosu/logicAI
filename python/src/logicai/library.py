@@ -118,6 +118,11 @@ class Component:
     signature: Signature | SequentialSignature
     input_order: tuple[int, ...]
 
+    @property
+    def has_memory(self) -> bool:
+        """Dit si c'est un circuit à mémoire (sa signature est séquentielle)."""
+        return isinstance(self.signature, SequentialSignature)
+
 
 @dataclass(frozen=True)
 class _Candidate:
