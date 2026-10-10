@@ -170,6 +170,12 @@ les faux échecs ; le test est stable (5 exécutions de suite, environ 11 s chac
 Deux de mes erreurs volontaires étaient mal conçues et ont été refaites : réenregistrer un circuit déjà accepté ne change rien dans la bibliothèque, et glisser un NOT non plus (le NOT est déjà trouvé avant le premier essai montré). Une vraie interférence demandait un circuit que l'IA n'a
 pas encore (un NAND à 2 entrées). Une 3e, « préparer un essai à chaque essai accepté », survit à ce test (le coût reste sous 50 %), mais elle est détectée par `test_display_work_is_done_only_when_the_director_asks` (étape 5).
 
+### Vérification par Téo sur son Mac
+
+Téo a lancé `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live --generations 20` sur son Mac (10 octobre 2026) et obtenu, comme attendu :
+`En écoute sur 127.0.0.1:8765 : lance Unity (Play). Ctrl-C pour arrêter.` / `Découverte (NEW) : NOT, 1 NAND` / `20 générations jouées.`
+La commande fonctionne donc sur macOS (serveur local, IA, arrêt propre). Seul NOT apparaît en 20 générations : au palier 1 il n'y a que lui à trouver, et le palier 2 ne se débloque qu'après 400 générations sans nouveauté (N = 400).
+
 ### Bilan de la partie Python de la phase 5
 
 Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
