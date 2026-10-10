@@ -78,6 +78,16 @@ STAGES = (Stage(1, 1, 1), Stage(2, 2, 1), Stage(3, 3, 1))
 STAGE_4 = Stage(4, STAGE_4_MAX_INPUTS, STAGE_4_MAX_OUTPUTS)
 STAGES_1_TO_4 = (*STAGES, STAGE_4)
 
+# Palier 5 du cahier : « avec CLK » (bascules, registres, compteurs). Le cahier ne
+# donne pas de nombre d'entrées ni de sorties : un palier contient les précédents, donc
+# ceux du palier 4. Les boucles et la CLK sont permises. Valeurs de départ, à régler par
+# essais : la batterie coûte plus cher avec beaucoup de signaux (15 ms pour 4 entrées et
+# la CLK).
+STAGE_5 = Stage(
+    5, STAGE_4_MAX_INPUTS, STAGE_4_MAX_OUTPUTS, allow_loops=True, allow_clock=True
+)
+STAGES_1_TO_5 = (*STAGES_1_TO_4, STAGE_5)
+
 
 @dataclass(frozen=True)
 class ChallengeSettings:
