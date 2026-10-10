@@ -73,7 +73,7 @@ def circuit_to_dict(
     result: dict[str, Any] = {
         "nom": name,
         "noeuds": [
-            _node_to_dict(node, layout[node.node_id]) for node in circuit.nodes()
+            node_to_dict(node, layout[node.node_id]) for node in circuit.nodes()
         ],
         "cables": [
             {
@@ -121,7 +121,7 @@ def circuit_from_dict(data: object) -> tuple[str, Circuit]:
 # --- Écriture --------------------------------------------------------------------
 
 
-def _node_to_dict(node: Node, position: Position) -> dict[str, Any]:
+def node_to_dict(node: Node, position: Position) -> dict[str, Any]:
     """Écrit un nœud ; un composant porte son nom de définition et ses broches."""
     result: dict[str, Any] = {
         "id": node.node_id,

@@ -33,9 +33,33 @@ Protocole proposé (le cahier ne le précise pas) : une ligne de JSON UTF-8 par 
 Erreur de ma part, corrigée avant le commit : mon test supposait que le relevé d'un NOT stabilisé est au top 1 ; le code de la phase 3 donne le top 2 (le top 1 fait passer la NAND à 1, le top 2 confirme
 que rien ne bouge), conformément à sa définition (« top de confirmation compris »).
 
+### Étape 2 faite : ordre de pose (`replay.py`, `tests/test_replay.py`, `serialization.py`, `errors.py`)
+
+- `placement_order(circuit)` : **les nœuds dans l'ordre des signaux, puis les câbles** (cahier). Nœuds triés par colonne `x` puis `y` (positions de `layout.py`), câbles après tous les nœuds, triés selon la pose de leur
+  puits puis le numéro de broche. Chaque étape est `{"action":"poser","noeud":{...}}` (nœud écrit comme dans un fichier, avec `x` et `y`) ou `{"action":"cabler","de":[n,p],"vers":[n,p]}` : le vocabulaire du futur
+  message « action » (phase 7).
+- `circuit_from_placement(steps, count)` fait l'inverse (les `count` premières étapes) : c'est ce que fera Unity pour la rediffusion, et ce qui permet de tester l'ordre. Réutilise `circuit_from_dict`.
+  Étapes incohérentes (action inconnue, câble avant son nœud, broche mal formée) : `InvalidPlacementError` ; règles du circuit violées (puits déjà relié, nœud posé deux fois) : `LibraryFormatError`.
+- `serialization._node_to_dict` devient publique (`node_to_dict`).
+- Le NOT redonne exactement l'exemple du cahier : entrée (0, 0), NAND (2, 0), sortie (4, 0), puis ses 3 câbles.
+- Test principal : rejouer l'ordre redonne exactement le circuit (même nœuds et identifiants, mêmes câbles), y compris sur 40 circuits au hasard avec boucles, et le comportement (table de vérité) est conservé ;
+  chaque préfixe de l'ordre est un circuit légal qui grandit d'une pièce à la fois.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `44 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 20 source files` |
+| `pytest` | `799 passed` en environ 59 s (723 avant, 76 nouveaux) |
+| Mutations (copie hors du projet) | 18 erreurs volontaires dans `replay.py`, 17 détectées, 1 équivalente |
+
+Deux trous de **mes tests**, trouvés par les mutations et comblés : (1) mes circuits câblaient toujours la broche 0 avant la broche 1, donc l'ordre d'insertion donnait par hasard le bon ordre des câbles ; test ajouté avec la
+broche 1 câblée en premier ; (2) le cas « broche courte » échouait pour une autre raison (un autre nœud pas encore posé) et ne prouvait rien sur la broche ; sa mise en place pose maintenant tous les nœuds avant l'étape fautive.
+Le mutant équivalent : retirer l'identifiant de la clé de tri des nœuds ne change rien, car le tri de Python est stable et `circuit.nodes()` est déjà dans l'ordre des identifiants (je garde l'identifiant : il rend le déterminisme explicite).
+
 ### Ce qui reste
 
-Étapes 2 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+Étapes 3 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
 
 ---
 

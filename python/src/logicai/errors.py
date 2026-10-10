@@ -123,3 +123,7 @@ class ProtocolError(Exception):
 
 class InvalidMessageError(ProtocolError):
     """Un message n'a pas la forme prévue (type inconnu, JSON invalide...)."""
+
+
+class InvalidPlacementError(ProtocolError):
+    """Un ordre de pose est incohérent (action inconnue, câble avant son nœud...)."""
