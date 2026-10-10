@@ -4,6 +4,229 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 5 faites
+
+### Plan validé par Téo (« OK avec tes recommandations »)
+
+Étapes : (1) filtres, (2) mutations, (3) récompense, (4) boucle d'évolution, (5) paliers, (6) test de la phase. Pas de NumPy (aucune bibliothèque ajoutée).
+Réponses de Téo, toutes prises comme recommandées :
+
+| # | Question | Décision |
+| --- | --- | --- |
+| Q1 | Choix des parents (récompense unique par signature) | Le plus petit circuit par signature trouvée (idée de MAP-Elites), plus quelques circuits récents |
+| Q2 | Score d'un circuit ni nouveau ni plus petit | 0 ; la pénalité k·N_NAND ne s'applique que sur une nouveauté ou un record ; un circuit rejeté vaut 0 |
+| Q3 | Réutilisation | Bonus ajouté au score de la nouvelle découverte + compteur de réutilisations par composant ; pas d'effet sur la fréquence de choix |
+| Q4 | Entrées et sorties aux paliers 1 à 3 | Une seule sortie : « ajouter une sortie » interdit ; « ajouter une entrée » s'arrête au maximum du palier |
+| Q5 | Boucles en phase 4 | Les mutations des paliers 1 à 3 ne créent pas de boucle (la règle de câblage ne change pas) |
+
+La branche est repartie de `main` après la fusion de la PR n°1 (avance rapide, rien perdu).
+
+### Étape 1 faite : filtres anti-triche (`filters.py`, `tests/test_filters.py`)
+
+- `find_rejections(circuit, definitions)` aplatit le circuit, calcule sa table de vérité, puis renvoie les motifs de rejet (tuple vide = accepté).
+  `rejections_of_table(table, input_count)` fait la même chose sur une table. Les 5 filtres du cahier sont des motifs de l'énumération `Rejection`.
+- Les filtres jugent le **comportement** (table de vérité), pas le câblage. Un circuit instable n'a que le motif `UNSTABLE` (sa table n'est pas significative).
+- Un circuit invalide (composant inconnu...) lève l'erreur d'aplatissement au lieu d'être « rejeté ».
+- `Library.register` lève `UnstableCircuitError` pour un circuit instable : l'évolution devra donc passer par les filtres **avant** l'enregistrement.
+
+Preuves :
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `31 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 14 source files` |
+| `pytest` | `477 passed` (439 avant, 38 nouveaux) |
+| Mutations (copie hors du projet) | 14 erreurs volontaires dans `filters.py`, 14 détectées, 0 survivante |
+
+Deux tests vérifient des chiffres du cahier : sur toutes les fonctions à 1 sortie, il en reste **1, 10 et 218** après les filtres (tableau des paliers) ;
+et toutes les petites tables (jusqu'à 3 entrées à 1 sortie, 2 entrées à 2 sorties) sont comparées à un calcul indépendant, combinaison par combinaison.
+
+Erreur de ma part, trouvée et corrigée : un test aléatoire demandait des entiers de 2³² bits (mauvais argument de `getrandbits`) et bloquait ; le module n'était pas en cause.
+
+### Étape 2 faite : mutations (`mutations.py`, `tests/test_mutations.py`, `errors.py`)
+
+- Les 7 mutations du cahier (`Mutation`) : ajouter une NAND, ajouter un composant, ajouter un câble, retirer un câble, retirer un nœud, ajouter une entrée,
+  ajouter une sortie. `apply_mutation` applique une mutation précise, `mutate` en tire une au hasard parmi les possibles (toujours possible : ajouter une NAND).
+- Le parent n'est jamais modifié (travail sur `Circuit.copy()`). Une mutation impossible rend `None` et ne change rien.
+- `MutationRules(max_inputs, max_outputs, allow_loops=False)` : réglages du palier. Q4 : une seule sortie aux paliers 1 à 3 (`max_outputs=1`) ;
+  Q5 : pas de boucle (`allow_loops=False` : un câble n'est proposé que si le nœud du puits ne mène pas déjà au nœud de la source).
+  Erreur dédiée : `InvalidMutationRulesError` (maximum négatif).
+- Tout le hasard vient du `random.Random` donné par l'appelant : même graine, même résultat (testé, et l'état global de `random` est sans effet).
+
+**Interprétation à confirmer par Téo** : le cahier dit « retirer un nœud » sans préciser. J'ai retenu : seulement les NAND et les composants ; les entrées et sorties du
+circuit ne se retirent pas (on en ajoute dans la limite du palier, et une entrée inutile est refusée par les filtres). Changer cela tient en une ligne (`_REMOVABLE_KINDS`).
+Le choix de la mutation est uniforme (pas de poids inventés) ; on les réglera par essais si besoin.
+
+À savoir pour l'étape 4 : « ajouter une entrée » ou « ajouter une NAND » seule donne un circuit refusé par les filtres (entrée ou NAND non câblée). Un enfant devra donc
+recevoir **plusieurs mutations** d'affilée.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `33 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 15 source files` |
+| `pytest` | `627 passed` (477 avant, 150 nouveaux) |
+| Mutations (copie hors du projet) | 22 erreurs volontaires dans `mutations.py` : 21 détectées, 1 équivalente |
+
+La première série en avait laissé survivre 5 : 4 venaient d'un vrai trou de **mes tests** (je ne vérifiais pas que les choix sont bien aléatoires : un code qui prenait toujours
+le premier élément passait). 4 tests de répartition ajoutés. Le mutant équivalent : sans `remaining.remove(kind)`, on retire au sort jusqu'à tomber sur une mutation possible ;
+la répartition des résultats est la même (uniforme parmi les possibles), seul le nombre de tirages change. Le code garde `remove` pour borner les essais à 7.
+
+### Étape 3 faite : récompense (`reward.py`, `tests/test_reward.py`, `errors.py`)
+
+- `RewardTracker(library, settings).evaluate(circuit)` suit le chemin du cahier : nettoyage, filtres (étape 1), enregistrement dans la bibliothèque, puis récompense.
+  Issues (`TrialKind`) : `REJECTED` (0 point), `NEW`, `RECORD`, `NOTHING` (0 point). Le résultat (`TrialResult`) donne l'issue, le score, le composant concerné,
+  les motifs de refus et les composants réutilisés. Seule la bibliothèque change, et seulement pour une nouveauté ou un record.
+- Formule : nouveauté = `novelty + reuse × (composants distincts réutilisés) − k × N_NAND` ; record = `record − k × N_NAND` ; refusé ou rien = 0 (décision Q2).
+  Le terme mémoire vaut 0 (phase 6). `RewardSettings` porte les 4 poids ; poids négatif refusé (`InvalidRewardSettingsError`).
+- **Valeurs de départ, à régler par essais** : nouveauté 100, record 30, réutilisation 5, k = 1 par NAND (ordres de grandeur « grand, moyen, petit, petit » du cahier).
+  Ce sont des valeurs que j'ai choisies pour pouvoir démarrer, pas des valeurs du cahier.
+- Compteur de réutilisations par composant (`reuse_count`), sans effet sur les choix de l'IA (décision Q3).
+- On juge le circuit **après nettoyage** (celui qui sera enregistré). Sinon une NAND rebouclée qui n'alimente aucune sortie le rendrait « instable », alors que la
+  bibliothèque le garde stable une fois nettoyé (la stabilité porte sur toutes les NAND).
+- Un circuit sans sortie est refusé (0 point, sans motif de filtre) : le cahier ne le range pas dans les 5 filtres, mais la bibliothèque le refuse.
+  Un circuit invalide (composant inconnu) ou plus grand que les limites de la bibliothèque lève l'erreur au lieu d'être « refusé » : c'est une erreur de réglage.
+
+**Interprétations à confirmer par Téo** (le cahier ne précise pas) :
+
+1. Le bonus de réutilisation ne vaut que pour une **nouveauté** (« une nouvelle découverte »), pas pour un record.
+2. Il se compte **par composant distinct** posé dans le circuit gardé : poser trois fois NOT = une réutilisation de NOT.
+3. Seuls les composants du circuit **gardé** comptent : un composant posé sans servir à rien ne rapporte rien (anti-triche).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `35 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 16 source files` |
+| `pytest` | `656 passed` (627 avant, 29 nouveaux) |
+| Mutations (copie hors du projet) | 23 erreurs volontaires dans `reward.py` : 22 détectées, 1 équivalente |
+
+Le mutant équivalent : enregistrer le circuit déjà nettoyé au lieu de l'original donne le même résultat, car `register` nettoie lui-même (le nettoyage est idempotent).
+
+### Étape 4 faite : boucle d'évolution (`evolution.py`, `tests/test_evolution.py`, `errors.py`)
+
+- `Evolution(library, rules, settings, reward_settings, seed)` ; `step()` fait une génération et rend un `GenerationReport` (numéro, nombre d'essais, découvertes =
+  nouveautés et records, récompense totale, `new_count` = nombre de nouveautés, records exclus : c'est ce que le changement de palier regardera).
+- Un enfant = un parent tiré au hasard + un nombre de mutations d'affilée tiré entre `min_mutations` et `max_mutations`, puis évaluation par `RewardTracker` (étape 3).
+- **Parents (décision Q1)** : le circuit vide (1 entrée, 1 sortie), la **définition de chaque composant** de la bibliothèque (c'est déjà le plus petit circuit de la signature,
+  un record la remplace), et les `recent_size` derniers circuits acceptés par les filtres, nettoyés. Les parents ne sont jamais modifiés (copies).
+- `rules` (palier) est un attribut modifiable entre deux générations : l'étape 5 s'en servira.
+- Le hasard vient d'un `random.Random(seed)` créé par l'IA : même graine, même déroulement (testé, état global de `random` sans effet).
+- Erreur dédiée : `InvalidEvolutionSettingsError`.
+
+**Valeurs de départ (à confirmer par Téo, à régler par essais)** : 50 enfants par génération, 1 à **12** mutations par enfant, 20 circuits récents.
+Choisies par un essai chiffré (script jetable, 2 à 8 graines par cas, pas un test) :
+
+| Essai | Résultat |
+| --- | --- |
+| Palier 1 : générations pour trouver NOT (8 graines, 50 enfants) | Toujours trouvé ; au plus 43 générations (max 4 mutations), au plus 19 (max 8), au plus 15 (max 12) ; moins d'une demi-seconde pour 8 graines |
+| Palier 2, 300 générations | max 6 : NOT, NAND, ORNOT, AND ; max 12 : en plus OR et ANDNOT |
+| Palier 2, 2000 générations, max 12 | selon la graine : 7 à 9 composants (une exécution a trouvé les 8 portes du palier 2 en 500 générations, d'autres n'ont pas encore NOR/XOR/XNOR) ; max 16 n'apporte rien de plus ; 100 circuits récents au lieu de 20 : résultats mélangés |
+| Vitesse | environ 10 ms par génération de 50 enfants (environ 5 000 essais par seconde) |
+
+**À retenir pour l'étape 6** : la boucle fonctionne, mais **trouver les 8 portes du palier 2 avec les tailles minimales à coup sûr n'est pas acquis**. Une exécution a trouvé XOR avec 5 NAND
+(le minimum est 4) et s'y est arrêtée ; d'autres n'ont pas trouvé NOR en 2000 générations. Il faudra régler (nombre de générations, mutations, circuits récents) et peut-être
+revoir le choix des parents. L'échantillon de l'essai est petit (2 graines pour les longues exécutions).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `37 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 17 source files` |
+| `pytest` | `677 passed` (656 avant, 21 nouveaux) |
+| Mutations (copie hors du projet) | 25 erreurs volontaires dans `evolution.py`, 25 détectées |
+
+Les mutations ont trouvé un trou dans **mes tests** (2 survivantes) : mes exécutions de test ne contenaient aucun record, donc « les records sont des découvertes » et « new_count ignore les records »
+tournaient à vide. Test remplacé par une exécution déterministe qui produit des records (graine 4, palier 2). Autre erreur de ma part, corrigée avant le commit : 4 tests supposaient
+qu'on trouve NOT en 10 générations de 20 enfants ; ils partent maintenant d'un état explicite (NOT déjà trouvé).
+
+### Étape 5 faite : paliers (`stages.py`, `tests/test_stages.py`, `errors.py`)
+
+- `STAGES` : palier 1 = 1 entrée, palier 2 = 2, palier 3 = 3, une seule sortie chacun, sans boucle (décisions Q4 et Q5). Les paliers 4 et 5 sont pour la phase 6.
+- `Curriculum(evolution, stalled_generations, stages)` mène une `Evolution` palier après palier : il applique les réglages du palier 1 au départ, joue `evolution.step()`, compte les
+  générations d'affilée **sans nouveauté** et, à N générations calmes, passe au palier suivant (nouveaux réglages `evolution.rules`, compte remis à zéro). Le dernier palier est gardé.
+- Un record n'est pas une nouveauté : il ne remet pas le compte à zéro (`GenerationReport.new_count`).
+- `StageReport` donne le palier où la génération a été jouée, le rapport de génération, et `advanced_to` (le nouveau palier si la génération vient de le débloquer).
+- Erreur dédiée : `InvalidStageSettingsError` (N < 1, liste de paliers vide).
+- Le critère est pris à la lettre (décision de Téo) : le compte démarre dès l'entrée dans le palier, même avant la première nouveauté. Les paliers se contiennent
+  (un palier plus grand permet « jusqu'à » n entrées), donc monter trop tôt élargit la recherche sans rien interdire.
+
+**Valeur de départ de N : 400 (à valider par Téo).** Choisie par un essai chiffré (script jetable, 5 graines, 3000 générations au palier 2, calcul hors ligne du moment où chaque N aurait fait
+quitter le palier). Les nouveautés arrivent par rafales séparées de longs silences (des centaines de générations), donc le critère est bruité :
+
+| N | Génération de sortie du palier 2 | Portes à 2 entrées trouvées à la sortie (5 graines) |
+| --- | --- | --- |
+| 100 | 117 à 189 | 2 à 3 |
+| 200 | 251 à 583 | 3 à 6 |
+| **400** | 551 à 783 | 4 à 6 |
+| 800 | 951 à 1861 | 4 à 8 |
+
+Passer de 400 à 800 double le temps pour un gain visible sur 2 graines seulement. Sur 3000 générations, une seule graine sur 5 a trouvé les 8 portes ; XOR est resté à 5 NAND dans une exécution
+(le minimum est 4). Conséquence : le test de la phase (étape 6) demandera de longues exécutions ou du réglage. Au palier 1, N = 400 fait attendre 400 générations (environ 4 s) après NOT,
+alors qu'il n'y a plus rien à trouver : le cahier a un seul critère, je ne l'ai pas rendu propre à chaque palier.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `39 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 18 source files` |
+| `pytest` | `689 passed` (677 avant, 12 nouveaux) |
+| Mutations (copie hors du projet) | 19 erreurs volontaires dans `stages.py`, 19 détectées |
+
+Les tests de critère utilisent une évolution « scénarisée » (sous-classe de `Evolution` dont `step()` rend des rapports écrits d'avance) pour contrôler exactement quelles générations apportent
+une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolution (NOT puis montée aux paliers 2 et 3 avec N = 10, et reproductibilité).
+
+### Étape 6 EN COURS : poids des mutations, test de la phase pas encore écrit
+
+**État du dépôt (mis à jour au commit du test de la phase) : la suite est verte** (hors mutations et journal définitif, encore à faire). Le test qui échouait juste après le
+changement des poids (`test_records_are_discoveries_but_not_novelties`) a reçu une nouvelle graine (4 -> 3, seul changement, assertion identique), avec l'accord de Téo (« tu peux continuer »
+après ma proposition) : avec les poids, la graine 4 ne produit plus de record, les graines 3 et 6 en produisent.
+
+Décisions de Téo (réponses du 10 octobre 2026) :
+
+- **Critère « approche les tailles minimales » = cahier à la lettre** : les 8 portes trouvées ; AND = 2, OR = 3, XOR = 4 NAND exactement ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR)
+  à 1 NAND de leur minimum au plus.
+- **Poids des mutations + 100 circuits récents** : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, option `weights` de `mutate`) ;
+  `DEFAULT_RECENT_SIZE` passe de 20 à 100.
+
+**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND avec 2 entrées, script jetable, pas de valeur prise de mémoire) :
+NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier (AND 2, OR 3, XOR 4).
+
+**Essais chiffrés (8 graines par ligne, 3000 générations au palier 2 après NOT, 4 réglages comparés ; scripts jetables)** :
+
+| Réglage | Les 8 portes trouvées | Les 8 à leur taille minimale |
+| --- | --- | --- |
+| Ancien (tout à égalité, 20 récents) | 2 graines sur 8 | 1 sur 8 |
+| 100 récents seulement | 4 sur 8 | 3 sur 8 |
+| **Favoriser les ajouts + 100 récents (retenu)** | **7 sur 8** | **5 sur 8** |
+| Favoriser les ajouts, 20 récents | 7 sur 8 | 3 sur 8 |
+| 300 récents, tout à égalité | 3 sur 8 | 0 sur 8 |
+
+Avec l'ancien algorithme, les portes trouvées l'étaient presque toujours à leur taille minimale : le blocage était la **découverte** de NOR, XOR et XNOR. Avec les poids, la découverte
+n'est plus le blocage ; ce sont les dernières réductions de taille (un XOR resté à 5 NAND, par exemple).
+
+**Résultat de la recherche de graines (réglages réels, flux du test : palier 1 jusqu'à NOT, puis palier 2, 16 graines, 2500 générations) : 4 graines sur 16 réussissent le critère
+« cahier à la lettre »** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210). Dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND**
+au lieu de 4 : réduire un circuit déjà trouvé est l'étape qui bloque. Le test de la phase (`tests/test_phase4.py`) utilise les graines 1, 12 et 11 : il prouve que l'IA *peut* le faire de façon
+reproductible, pas qu'elle le fait à coup sûr. Cet écart avec mon essai précédent (5 graines sur 8 à « tout au minimum » en 3000 générations) n'est pas expliqué ; les deux échantillons sont petits
+et les déroulements diffèrent, donc je ne les additionne pas.
+
+À faire : essai sur le nombre de mutations par enfant (en cours) ; mutations ; 4 contrôles ; journal définitif.
+
+### Environnement de cette session
+
+Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
+L'état de départ était le même que dans le journal (439 tests). Python 3.11 : toujours pas vérifié par exécution.
+
+### Ce qui reste (phase 4)
+
+Étape 6 (test de la phase : NOT, puis les 8 découvertes à 2 entrées, tailles minimales). Pas commencée.
+Toujours ouverts : interprétation de la CLK (phase 6), réglages de départ à valider (poids de la récompense, 50 enfants / 1 à 12 mutations / 20 récents, N = 400).
+Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
+
+---
+
 ## 10 octobre 2026 — Mise à jour de la copie locale du cahier
 
 ### Ce qui est fait
