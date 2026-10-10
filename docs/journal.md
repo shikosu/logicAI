@@ -181,9 +181,43 @@ La commande fonctionne donc sur macOS (serveur local, IA, arrêt propre). Seul N
 Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
 Téo le vérifie sur son Mac avec `tools/run_unity_tests.sh EditMode` puis `PlayMode`. La phase 5 ne sera jugée terminée qu'après la vérification visuelle dans Unity.
 
+### Étape 7 écrite : messages en C# (**NON compilée, NON testée : à vérifier par Téo**)
+
+Fichiers (tous dans `Assets/`, aucun `.meta` créé ni modifié) :
+
+- `Scripts/Runtime/LiveMessages.cs` : les classes `[Serializable]` des messages (`PlacementStep`, `DiscoveryData`, `StatsData` ; `StateData` et `CircuitFile` de la phase 3 sont réutilisées), les « enveloppes »
+  dont `JsonUtility` a besoin pour lire une seule clé, et `LiveMessageParser.Parse(ligne)`, qui lit d'abord `message` (le type) puis la classe voulue. Toute ligne incorrecte lève `LiveMessageException`
+  (Unity ne plante pas à cause d'une ligne). Pour une découverte, le parseur vérifie aussi que l'**ordre de pose redonne bien le circuit** du message (même nombre de nœuds et de câbles).
+- `Scripts/Runtime/LivePlacement.cs` : `BuildCircuit(nom, étapes, n)` rejoue les `n` premières étapes de pose et renvoie le circuit partiel (c'est ce que l'interface de l'étape 9 redessinera à chaque étape).
+  Incohérences refusées par `CircuitFormatException` : action inconnue, câble avant l'un de ses nœuds, broche mal écrite, nœud posé deux fois, `n` négatif.
+- `Scripts/Runtime/CircuitLoader.cs` : `Validate` devient publique (une ligne modifiée, plus un commentaire) pour que les messages contenant un circuit soient vérifiés exactement comme un fichier de circuit.
+- `Tests/EditMode/LiveSamples.cs` : **lignes de messages générées par le vrai code Python** (`protocol.py`, `replay.py`), pas écrites à la main (`'` à la place de `"` pour les écrire en C#). Le C# lit donc ce que Python écrit vraiment.
+- `Tests/EditMode/LiveMessageTests.cs` (22 tests) et `LivePlacementTests.cs` (12 tests) : lecture des 4 types de messages, champs inconnus ignorés, 15 cas de messages refusés ; rejeu de l'ordre de pose (chaque préfixe grandit d'une pièce,
+  l'ordre complet redonne le circuit du message) et 8 cas d'ordres incohérents refusés.
+
+**Ce que j'ai pu vérifier ici (sans Unity)** : les chaînes que mes tests remplacent dans les échantillons existent bien (une seule fois) ; les morceaux de messages d'erreur attendus existent dans le code C# ; accolades et parenthèses
+sont équilibrées ; la partie Python n'a pas changé de comportement (seule la docstring de `replay.py` est corrigée : l'axe `y` monte, les nœuds d'une colonne sont posés de bas en haut, l'ordre dans une colonne n'a pas d'effet sur le circuit obtenu).
+**Ce que je n'ai pas pu vérifier** : que le C# compile, et que les 34 tests passent. C'est à Téo de lancer `tools/run_unity_tests.sh EditMode` ; je corrige selon la sortie.
+
+Comportements de `JsonUtility` que je n'ai volontairement **pas** supposés : ce qu'il met dans un tableau ou un objet absent du JSON (nul ou vide : mes tests acceptent les deux, ils vérifient seulement que le message est refusé).
+Un seul pari reste : un nombre écrit sans virgule (`3`) est lu comme un `float` (test `Parse_StatsWithAnIntegerReward_IsAccepted`) ; Python écrit `3.0`, donc ce test est une précaution. S'il échoue, c'est ce test qui est à revoir, pas le parseur.
+
+| Contrôle (Python, inchangé hors docstring) | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `875 passed` en environ 82 s |
+| Tests C# (34 nouveaux) | **non exécutés** : en attente de la sortie de `tools/run_unity_tests.sh EditMode` sur le Mac de Téo |
+
+Les `.meta` des 5 nouveaux fichiers seront créés par l'Unity de Téo à la première ouverture ; il les commitera à part (comme en phase 3).
+
 ### Ce qui reste
 
-Étapes 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+- **Étape 7 : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, sortie collée ici).
+- Étape 8 : `LiveConnection.cs` (connexion TCP en fil séparé, reconnexion automatique, file lue dans `Update`).
+- Étape 9 : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
+- La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
 ---
 
