@@ -4,6 +4,41 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), en cours
+
+### Plan validé par Téo
+
+Test du cahier : « on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse ». Décisions de Téo : **Python écoute sur 127.0.0.1, Unity se connecte** ;
+**Python testé ici, C# écrit ici mais vérifié par Téo sur son Mac** (ni Unity, ni dotnet, ni Mono sur cette machine : le C# ne peut être ni compilé ni testé ici ; vérifié par commande).
+Étapes Python : (1) `protocol.py`, (2) `replay.py` (ordre de pose), (3) `live_server.py` (transport non bloquant), (4) `live_director.py` (quoi montrer, à quel rythme),
+(5) branchement dans `Evolution` + `python -m logicai.live`, (6) test de la phase côté Python. Étapes C# : (7) messages, (8) connexion, (9) interface. Plan complet : voir le fichier de plan de la session.
+
+Protocole proposé (le cahier ne le précise pas) : une ligne de JSON UTF-8 par message, clé `"message"` = type ; types `circuit`, `etat`, `decouverte`, `stats` (le type `action` est pour la phase 7).
+
+### Étape 1 faite : messages (`protocol.py`, `tests/test_protocol.py`, `serialization.py`, `errors.py`)
+
+- `circuit_message`, `state_message`, `discovery_message` (nom, genre `nouveaute`/`record`, coût, circuit avec composants, ordre de pose), `stats_message` ; `encode_message` (une seule ligne, UTF-8 sans échappement des accents,
+  écriture compacte, NaN et infini refusés) et `decode_message` ; erreurs dédiées `ProtocolError` / `InvalidMessageError`.
+- `serialization._state_to_dict` devient publique (`state_to_dict`) : la clé `etat` d'un fichier et le message `etat` ont la même forme (cahier).
+- Vérifié : un socket local fonctionne dans cet environnement (essai jetable).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `42 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 19 source files` |
+| `pytest` | `723 passed` (701 avant, 22 nouveaux) |
+| Mutations (copie hors du projet) | 17 erreurs volontaires dans `protocol.py`, 17 détectées |
+
+Erreur de ma part, corrigée avant le commit : mon test supposait que le relevé d'un NOT stabilisé est au top 1 ; le code de la phase 3 donne le top 2 (le top 1 fait passer la NAND à 1, le top 2 confirme
+que rien ne bouge), conformément à sa définition (« top de confirmation compris »).
+
+### Ce qui reste
+
+Étapes 2 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+
+---
+
 ## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), terminée
 
 ### Plan validé par Téo (« OK avec tes recommandations »)

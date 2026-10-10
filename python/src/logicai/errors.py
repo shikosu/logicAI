@@ -115,3 +115,11 @@ class InvalidEvolutionSettingsError(Exception):
 
 class InvalidStageSettingsError(Exception):
     """Les réglages demandés pour les paliers ne sont pas valides."""
+
+
+class ProtocolError(Exception):
+    """Base des refus liés aux messages échangés avec Unity."""
+
+
+class InvalidMessageError(ProtocolError):
+    """Un message n'a pas la forme prévue (type inconnu, JSON invalide...)."""

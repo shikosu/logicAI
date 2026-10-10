@@ -84,7 +84,7 @@ def circuit_to_dict(
         ],
     }
     if snapshot is not None:
-        result["etat"] = _state_to_dict(circuit, snapshot)
+        result["etat"] = state_to_dict(circuit, snapshot)
     return result
 
 
@@ -136,7 +136,7 @@ def _node_to_dict(node: Node, position: Position) -> dict[str, Any]:
     return result
 
 
-def _state_to_dict(circuit: Circuit, snapshot: Snapshot) -> dict[str, Any]:
+def state_to_dict(circuit: Circuit, snapshot: Snapshot) -> dict[str, Any]:
     """Écrit un relevé de valeurs, après avoir vérifié qu'il correspond au circuit."""
     node_count, wire_count = len(circuit.nodes()), len(circuit.wires())
     if (len(snapshot.node_values), len(snapshot.wire_values)) != (
