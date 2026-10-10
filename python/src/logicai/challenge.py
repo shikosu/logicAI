@@ -16,6 +16,13 @@ graine sur 8 sans défi, 7 sur 8 avec) :
   formule de récompense du cahier ne change pas : atteindre la cible est une nouveauté
   comme une autre.
 
+**Petites cibles d'abord** (décision de Téo, après une mesure : les cibles tirées
+uniformément jusqu'à 4 entrées et 3 sorties sont presque toujours trop dures, 3 défis
+atteints sur environ 40). La taille des cibles dépend d'un « niveau » : il part de
+2 entrées et 2 sorties (le demi-additionneur en fait partie), et grandit d'un cran à
+chaque défi atteint, une entrée puis une sortie en alternance, jusqu'aux limites du
+palier. Le choix reste au hasard et fait par le système.
+
 La proximité se mesure sur l'ordre d'origine des entrées : un circuit qui construit la
 cible avec ses entrées échangées est reconnu à l'arrivée (la signature est canonique),
 mais pas par la proximité.
@@ -39,6 +46,9 @@ MIN_CHALLENGE_INPUTS = 2
 
 # Nombre de tables tirées avant de renoncer à choisir un défi (valeur de départ).
 MAX_DRAWS = 1000
+
+# Taille des premières cibles : 2 entrées et 2 sorties.
+FIRST_OUTPUTS = 2
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,18 @@ class Challenge:
             bits - (found ^ wanted).bit_count()
             for found, wanted in zip(table.outputs, self.outputs, strict=True)
         )
+
+
+def challenge_size(level: int, max_inputs: int, max_outputs: int) -> tuple[int, int]:
+    """Renvoie les entrées et sorties au plus d'une cible, au niveau donné.
+
+    Le niveau 0 donne 2 entrées et 2 sorties ; chaque niveau ajoute une entrée, puis
+    une sortie, en alternance (3 et 2, puis 3 et 3, puis 4 et 3...), sans dépasser les
+    limites du palier.
+    """
+    inputs = MIN_CHALLENGE_INPUTS + (level + 1) // 2
+    outputs = FIRST_OUTPUTS + level // 2
+    return min(inputs, max_inputs), min(outputs, max_outputs)
 
 
 def choose_challenge(

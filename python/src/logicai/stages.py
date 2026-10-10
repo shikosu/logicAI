@@ -17,6 +17,12 @@ sans rien interdire.
 Les paliers 1 à 3 imposent une sortie et aucune boucle (décisions Q4 et Q5) : ces
 réglages sont ceux de ``MutationRules``.
 
+**Durée fixe d'un palier.** Au palier 4, chaque paire de fonctions déjà connues est une
+nouveauté : la plus longue série de générations sans nouveauté mesurée est de 3 à 17, le
+critère ci-dessus ne s'y déclenche donc jamais (décision de Téo, 10 octobre 2026). Un
+palier peut avoir un nombre fixe de générations (``max_generations``) : il est quitté à
+la première de ces deux conditions.
+
 **Palier 4 et défis.** Dès le palier 4 (4 entrées, plusieurs sorties), chaque paire de
 fonctions déjà connues est une « nouveauté » : le demi-additionneur devient une
 aiguille dans des dizaines de milliers de paires (mesuré : 0 graine sur 8 par le
@@ -28,7 +34,7 @@ proximité ne progresse plus pendant ``patience`` générations.
 import random
 from dataclasses import dataclass
 
-from logicai.challenge import choose_challenge
+from logicai.challenge import Challenge, challenge_size, choose_challenge
 from logicai.errors import InvalidChallengeError, InvalidStageSettingsError
 from logicai.evolution import Evolution, GenerationReport
 from logicai.mutations import MutationRules
@@ -42,6 +48,10 @@ DEFAULT_STALLED_GENERATIONS = 400
 STAGE_4_MAX_INPUTS = 4
 STAGE_4_MAX_OUTPUTS = 3
 
+# Nombre de générations du palier 4 (décision de Téo : durée fixe ; valeur de départ,
+# à régler par essais).
+STAGE_4_GENERATIONS = 2000
+
 # Défis : générations sans progrès de la proximité avant d'abandonner un défi (valeur de
 # départ, à régler par essais), et palier où les défis commencent.
 DEFAULT_CHALLENGE_PATIENCE = 300
@@ -54,7 +64,8 @@ class Stage:
 
     Les paliers 1 à 3 n'ont ni boucle ni CLK. Un palier qui permet les boucles
     (``allow_loops``) ou la CLK (``allow_clock``) laisse l'IA construire des circuits à
-    mémoire.
+    mémoire. ``max_generations``, s'il est donné, est le nombre de générations après
+    lequel on quitte le palier, même s'il y a encore des nouveautés.
     """
 
     number: int
@@ -62,6 +73,15 @@ class Stage:
     max_outputs: int
     allow_loops: bool = False
     allow_clock: bool = False
+    max_generations: int | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse une durée qui ne laisserait aucune génération à l'IA."""
+        if self.max_generations is not None and self.max_generations < 1:
+            raise InvalidStageSettingsError(
+                "Un palier doit durer au moins 1 génération "
+                f"(reçu : {self.max_generations})."
+            )
 
     @property
     def rules(self) -> MutationRules:
@@ -75,7 +95,9 @@ class Stage:
 STAGES = (Stage(1, 1, 1), Stage(2, 2, 1), Stage(3, 3, 1))
 
 # Palier 4, à jouer avec les défis (voir l'en-tête). ``STAGES`` ne change pas.
-STAGE_4 = Stage(4, STAGE_4_MAX_INPUTS, STAGE_4_MAX_OUTPUTS)
+STAGE_4 = Stage(
+    4, STAGE_4_MAX_INPUTS, STAGE_4_MAX_OUTPUTS, max_generations=STAGE_4_GENERATIONS
+)
 STAGES_1_TO_4 = (*STAGES, STAGE_4)
 
 # Palier 5 du cahier : « avec CLK » (bascules, registres, compteurs). Le cahier ne
@@ -152,10 +174,12 @@ class Curriculum:
         self._stages = stages
         self._index = 0
         self._quiet = 0
+        self._in_stage = 0
         evolution.rules = stages[0].rules
         self._challenges = challenges
         self._challenge_rng = random.Random(challenges.seed if challenges else 0)
         self._reached = 0
+        self._size_level = 0  # grandit à chaque défi atteint (voir ``challenge_size``)
         self._best_closeness: int | None = None
         self._stale = 0
 
@@ -184,8 +208,9 @@ class Curriculum:
         played = self.stage
         report = self._evolution.step()
         self._quiet = 0 if report.new_count > 0 else self._quiet + 1
+        self._in_stage += 1
         advanced_to = None
-        if self._quiet >= self._stalled and not self.is_last_stage:
+        if self._should_advance() and not self.is_last_stage:
             advanced_to = self._advance()
         if self._challenges is not None:
             self._manage_challenge(self._challenges)
@@ -203,17 +228,32 @@ class Curriculum:
         current = evolution.challenge
         if current is not None and evolution.library.has_signature(current.signature):
             self._reached += 1
+            self._size_level += 1
             current = None
         elif current is not None and self._is_stalled(settings.patience):
             current = None
         if current is None:
-            evolution.challenge = choose_challenge(
-                evolution.library,
-                self._challenge_rng,
-                self.stage.max_inputs,
-                self.stage.max_outputs,
-            )
+            evolution.challenge = self._next_challenge()
             self._best_closeness, self._stale = None, 0
+
+    def _next_challenge(self) -> Challenge | None:
+        """Tire une cible de la taille du niveau, ou d'un niveau au-dessus si aucune.
+
+        Si toutes les cibles de cette taille sont déjà connues (ou refusées), le niveau
+        grandit, sans compter de défi atteint, jusqu'aux limites du palier.
+        """
+        stage = self.stage
+        while True:
+            inputs, outputs = challenge_size(
+                self._size_level, stage.max_inputs, stage.max_outputs
+            )
+            challenge = choose_challenge(
+                self._evolution.library, self._challenge_rng, inputs, outputs
+            )
+            at_limit = (inputs, outputs) == (stage.max_inputs, stage.max_outputs)
+            if challenge is not None or at_limit:
+                return challenge
+            self._size_level += 1
 
     def _is_stalled(self, patience: int) -> bool:
         """Dit si la proximité n'a pas progressé depuis ``patience`` générations."""
@@ -226,9 +266,17 @@ class Curriculum:
         self._stale += 1
         return self._stale >= patience
 
+    def _should_advance(self) -> bool:
+        """Dit si le palier est fini : générations calmes ou durée."""
+        limit = self.stage.max_generations
+        return self._quiet >= self._stalled or (
+            limit is not None and self._in_stage >= limit
+        )
+
     def _advance(self) -> int:
         """Monte au palier suivant : nouveaux réglages, compte remis à zéro."""
         self._index += 1
         self._quiet = 0
+        self._in_stage = 0
         self._evolution.rules = self.stage.rules
         return self.stage.number

@@ -16,6 +16,7 @@ from logicai.challenge import (
     MAX_DRAWS,
     MIN_CHALLENGE_INPUTS,
     Challenge,
+    challenge_size,
     choose_challenge,
 )
 from logicai.circuit import Circuit, NodeKind
@@ -449,3 +450,96 @@ def test_stage_4_is_the_cahier_stage_with_several_outputs() -> None:
     assert (stage.number, stage.max_inputs) == (4, 4)
     assert stage.max_outputs > 1
     assert stage.allow_loops is False
+
+
+# --- Petites cibles d'abord ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [(0, (2, 2)), (1, (3, 2)), (2, (3, 3)), (3, (4, 3)), (4, (4, 3)), (9, (4, 3))],
+)
+def test_targets_start_small_and_grow_one_step_at_a_time(
+    level: int, expected: tuple[int, int]
+) -> None:
+    # Décision de Téo : on commence à 2 entrées et 2 sorties (le demi-additionneur en
+    # fait partie) et on grandit à chaque défi atteint, une entrée puis une sortie.
+    assert challenge_size(level, 4, 3) == expected
+
+
+def test_the_size_never_exceeds_the_stage() -> None:
+    assert challenge_size(9, 2, 2) == (2, 2)
+    assert challenge_size(9, 3, 1) == (3, 1)
+
+
+class _KnowingLibrary(Library):
+    """Une bibliothèque qui connaît des signatures de plus, choisies par le test."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.known: set[Signature] = set()
+        self.known_up_to_inputs = 0
+
+    def has_signature(self, signature: Signature | SequentialSignature) -> bool:
+        too_small = (
+            isinstance(signature, Signature)
+            and signature.input_count <= self.known_up_to_inputs
+        )
+        return too_small or signature in self.known or super().has_signature(signature)
+
+
+def _course(stage: Stage, library: Library) -> tuple[_ScriptedEvolution, Curriculum]:
+    evolution = _ScriptedEvolution()
+    evolution._library = library
+    settings = ChallengeSettings(seed=4, patience=10_000, first_stage=stage.number)
+    return evolution, Curriculum(evolution, 1, (stage,), settings)
+
+
+def test_the_first_challenge_has_two_inputs_and_at_most_two_outputs() -> None:
+    evolution, curriculum = _course(Stage(4, 4, 3), Library())
+    curriculum.step()
+    challenge = evolution.challenge
+    assert challenge is not None
+    assert challenge.input_count == 2
+    assert 1 <= len(challenge.outputs) <= 2
+
+
+def test_targets_grow_each_time_a_challenge_is_reached() -> None:
+    library = _KnowingLibrary()
+    evolution, curriculum = _course(Stage(4, 4, 3), library)
+    curriculum.step()
+    seen_inputs: set[int] = set()
+    seen_outputs: set[int] = set()
+    for reached in range(40):
+        challenge = evolution.challenge
+        assert challenge is not None
+        max_inputs, max_outputs = challenge_size(reached, 4, 3)
+        assert MIN_CHALLENGE_INPUTS <= challenge.input_count <= max_inputs
+        assert 1 <= len(challenge.outputs) <= max_outputs
+        seen_inputs.add(challenge.input_count)
+        seen_outputs.add(len(challenge.outputs))
+        library.known.add(challenge.signature)  # le défi est atteint
+        curriculum.step()
+    assert curriculum.reached_challenges == 40
+    assert seen_inputs == {2, 3, 4}  # on a fini par atteindre les limites du palier
+    assert seen_outputs == {1, 2, 3}
+
+
+def test_when_every_small_target_is_known_the_next_size_is_tried() -> None:
+    # Pas de défi atteint : le niveau grandit seulement parce que rien n'est à tirer.
+    library = _KnowingLibrary()
+    library.known_up_to_inputs = 2
+    evolution, curriculum = _course(Stage(4, 4, 3), library)
+    curriculum.step()
+    challenge = evolution.challenge
+    assert challenge is not None
+    assert challenge.input_count == 3
+    assert curriculum.reached_challenges == 0
+
+
+def test_no_challenge_and_no_endless_loop_when_the_whole_stage_is_known() -> None:
+    library = _KnowingLibrary()
+    library.known_up_to_inputs = 2
+    evolution, curriculum = _course(Stage(4, 2, 2), library)
+    curriculum.step()
+    assert evolution.challenge is None
