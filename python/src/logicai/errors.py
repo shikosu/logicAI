@@ -111,3 +111,7 @@ class InvalidRewardSettingsError(Exception):
 
 class InvalidEvolutionSettingsError(Exception):
     """Les réglages demandés pour la boucle d'évolution ne sont pas valides."""
+
+
+class InvalidStageSettingsError(Exception):
+    """Les réglages demandés pour les paliers ne sont pas valides."""

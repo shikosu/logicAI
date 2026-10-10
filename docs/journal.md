@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 4 faites
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 5 faites
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -141,6 +141,42 @@ Les mutations ont trouvé un trou dans **mes tests** (2 survivantes) : mes exéc
 tournaient à vide. Test remplacé par une exécution déterministe qui produit des records (graine 4, palier 2). Autre erreur de ma part, corrigée avant le commit : 4 tests supposaient
 qu'on trouve NOT en 10 générations de 20 enfants ; ils partent maintenant d'un état explicite (NOT déjà trouvé).
 
+### Étape 5 faite : paliers (`stages.py`, `tests/test_stages.py`, `errors.py`)
+
+- `STAGES` : palier 1 = 1 entrée, palier 2 = 2, palier 3 = 3, une seule sortie chacun, sans boucle (décisions Q4 et Q5). Les paliers 4 et 5 sont pour la phase 6.
+- `Curriculum(evolution, stalled_generations, stages)` mène une `Evolution` palier après palier : il applique les réglages du palier 1 au départ, joue `evolution.step()`, compte les
+  générations d'affilée **sans nouveauté** et, à N générations calmes, passe au palier suivant (nouveaux réglages `evolution.rules`, compte remis à zéro). Le dernier palier est gardé.
+- Un record n'est pas une nouveauté : il ne remet pas le compte à zéro (`GenerationReport.new_count`).
+- `StageReport` donne le palier où la génération a été jouée, le rapport de génération, et `advanced_to` (le nouveau palier si la génération vient de le débloquer).
+- Erreur dédiée : `InvalidStageSettingsError` (N < 1, liste de paliers vide).
+- Le critère est pris à la lettre (décision de Téo) : le compte démarre dès l'entrée dans le palier, même avant la première nouveauté. Les paliers se contiennent
+  (un palier plus grand permet « jusqu'à » n entrées), donc monter trop tôt élargit la recherche sans rien interdire.
+
+**Valeur de départ de N : 400 (à valider par Téo).** Choisie par un essai chiffré (script jetable, 5 graines, 3000 générations au palier 2, calcul hors ligne du moment où chaque N aurait fait
+quitter le palier). Les nouveautés arrivent par rafales séparées de longs silences (des centaines de générations), donc le critère est bruité :
+
+| N | Génération de sortie du palier 2 | Portes à 2 entrées trouvées à la sortie (5 graines) |
+| --- | --- | --- |
+| 100 | 117 à 189 | 2 à 3 |
+| 200 | 251 à 583 | 3 à 6 |
+| **400** | 551 à 783 | 4 à 6 |
+| 800 | 951 à 1861 | 4 à 8 |
+
+Passer de 400 à 800 double le temps pour un gain visible sur 2 graines seulement. Sur 3000 générations, une seule graine sur 5 a trouvé les 8 portes ; XOR est resté à 5 NAND dans une exécution
+(le minimum est 4). Conséquence : le test de la phase (étape 6) demandera de longues exécutions ou du réglage. Au palier 1, N = 400 fait attendre 400 générations (environ 4 s) après NOT,
+alors qu'il n'y a plus rien à trouver : le cahier a un seul critère, je ne l'ai pas rendu propre à chaque palier.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `39 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 18 source files` |
+| `pytest` | `689 passed` (677 avant, 12 nouveaux) |
+| Mutations (copie hors du projet) | 19 erreurs volontaires dans `stages.py`, 19 détectées |
+
+Les tests de critère utilisent une évolution « scénarisée » (sous-classe de `Evolution` dont `step()` rend des rapports écrits d'avance) pour contrôler exactement quelles générations apportent
+une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolution (NOT puis montée aux paliers 2 et 3 avec N = 10, et reproductibilité).
+
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
@@ -148,8 +184,8 @@ L'état de départ était le même que dans le journal (439 tests). Python 3.11 
 
 ### Ce qui reste (phase 4)
 
-Étapes 5 et 6 (paliers, test de la phase). Aucune n'est commencée.
-Toujours ouverts : interprétation de la CLK (phase 6), valeur de N et poids de la récompense (par essais).
+Étape 6 (test de la phase : NOT, puis les 8 découvertes à 2 entrées, tailles minimales). Pas commencée.
+Toujours ouverts : interprétation de la CLK (phase 6), réglages de départ à valider (poids de la récompense, 50 enfants / 1 à 12 mutations / 20 récents, N = 400).
 Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
 
 ---
