@@ -89,6 +89,17 @@ class Node:
     source_count: int
     component_ref: str | None = None
 
+    @classmethod
+    def fixed(cls, node_id: int, kind: NodeKind) -> Self:
+        """Crée un nœud INPUT, OUTPUT ou NAND, avec le nombre de broches de son type."""
+        if kind is NodeKind.COMPONENT:
+            raise InvalidNodeError(
+                "Un composant n'a pas de nombre de broches propre à son type : "
+                "il faut le donner."
+            )
+        counts = _PIN_COUNTS[kind]
+        return cls(node_id, kind, counts.sinks, counts.sources)
+
     def __post_init__(self) -> None:
         """Refuse un nœud incohérent : identifiant, type, broches ou référence."""
         if self.node_id < 0:

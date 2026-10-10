@@ -21,6 +21,7 @@ l'extérieur.
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 from types import MappingProxyType
 from typing import Self
 
@@ -29,12 +30,16 @@ from logicai.circuit import Circuit
 from logicai.cleanup import remove_useless_nodes
 from logicai.errors import (
     ComponentTooLargeError,
+    FlattenError,
     InvalidLimitsError,
+    LibraryError,
+    LibraryFormatError,
     NoOutputError,
     UnknownComponentNameError,
     UnstableCircuitError,
 )
 from logicai.flatten import flat_nand_count, flatten
+from logicai.serialization import circuit_from_json, circuit_to_json
 from logicai.signature import CanonicalForm, Signature, canonical_form, known_name
 from logicai.simulation import Status
 
@@ -45,6 +50,9 @@ DEFAULT_MAX_OUTPUTS = 15
 # Nom d'un composant sans nom connu : C-001, C-002...
 _UNNAMED_FORMAT = "C-{number:03d}"
 _FIRST_NUMBER = 1
+
+# Un composant est rangé dans un fichier ``<nom>.json``.
+_FILE_SUFFIX = ".json"
 
 
 @dataclass(frozen=True)
@@ -152,16 +160,19 @@ class Library:
     def _prepare(self, circuit: Circuit) -> _Candidate:
         """Contrôle le circuit, le nettoie, puis calcule son coût et sa signature."""
         self._check_size(circuit)
-        cleaned = remove_useless_nodes(circuit)
-        flat = flatten(cleaned, self._definitions_view)
+        return self._analyze(remove_useless_nodes(circuit))
+
+    def _analyze(self, circuit: Circuit) -> _Candidate:
+        """Aplatit le circuit, refuse l'instable, puis calcule coût et signature."""
+        flat = flatten(circuit, self._definitions_view)
         table = truth_table(flat)
         if table.status is not Status.STABLE:
             raise UnstableCircuitError(
                 "Le circuit est instable (une sortie change encore après T_max + 1 "
                 "tops) : il n'a pas de signature et ne peut pas devenir un composant."
             )
-        form = canonical_form(table, len(cleaned.inputs()))
-        return _Candidate(cleaned, flat.nand_count(), form)
+        form = canonical_form(table, len(circuit.inputs()))
+        return _Candidate(circuit, flat.nand_count(), form)
 
     def _check_size(self, circuit: Circuit) -> None:
         """Refuse un circuit sans sortie, ou avec trop d'entrées ou de sorties."""
@@ -210,7 +221,11 @@ class Library:
         return Registration(Outcome.RECORD, name)
 
     def _fresh_name(self) -> str:
-        """Donne le prochain nom numéroté libre : C-001, C-002..."""
+        """Donne le prochain nom numéroté libre : C-001, C-002...
+
+        Un nom déjà pris est sauté : c'est ce qui fait continuer la numérotation après
+        un rechargement.
+        """
         while True:
             name = _UNNAMED_FORMAT.format(number=self._next_number)
             self._next_number += 1
@@ -220,7 +235,11 @@ class Library:
     # --- Lire -----------------------------------------------------------------
 
     def names(self) -> tuple[str, ...]:
-        """Renvoie les noms des composants, dans l'ordre où ils sont apparus."""
+        """Renvoie les noms des composants.
+
+        L'ordre est celui où ils sont apparus ; après un rechargement depuis un dossier,
+        c'est l'ordre alphabétique des fichiers.
+        """
         return tuple(self._components)
 
     def component(self, name: str) -> Component:
@@ -250,6 +269,85 @@ class Library:
         return circuit.add_component_node(
             name, len(definition.inputs()), len(definition.outputs())
         )
+
+    # --- Fichiers JSON --------------------------------------------------------
+
+    def save(self, directory: Path) -> None:
+        """Écrit chaque composant dans ``<dossier>/<nom>.json`` (le dossier est créé).
+
+        Les fichiers existants du même nom sont remplacés : sauvegarder après un
+        record écrit donc la version la plus petite.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, component in self._components.items():
+            path = directory / f"{name}{_FILE_SUFFIX}"
+            path.write_text(circuit_to_json(name, component.circuit), encoding="utf-8")
+
+    @classmethod
+    def load(cls, directory: Path, limits: LibraryLimits | None = None) -> Self:
+        """Relit une bibliothèque depuis un dossier de fichiers ``<nom>.json``.
+
+        Rien n'est cru sur parole : chaque composant est revérifié comme à
+        l'enregistrement (références, boucles, instabilité, doublons de signature,
+        limites). Au moindre problème, ``LibraryFormatError`` est levée et aucune
+        bibliothèque n'est rendue.
+        """
+        if not directory.is_dir():
+            raise LibraryFormatError(f"{directory} n'est pas un dossier.")
+        circuits: dict[str, Circuit] = {}
+        for path in sorted(directory.glob(f"*{_FILE_SUFFIX}")):
+            name, circuit = _read_component_file(path)
+            circuits[name] = circuit
+        library = cls(limits)
+        library._restore(circuits)
+        return library
+
+    def _restore(self, circuits: Mapping[str, Circuit]) -> None:
+        """Remplit une bibliothèque vide avec des définitions lues dans des fichiers."""
+        self._definitions.update(circuits)  # tous d'abord : ils peuvent se référencer
+        for name, circuit in circuits.items():
+            try:
+                self._restore_one(name, circuit)
+            except LibraryFormatError:
+                raise
+            except (FlattenError, LibraryError) as error:
+                raise LibraryFormatError(f"Composant {name!r} : {error}") from error
+
+    def _restore_one(self, name: str, circuit: Circuit) -> None:
+        """Revérifie un composant lu dans un fichier, puis le range."""
+        self._check_size(circuit)
+        candidate = self._analyze(circuit)
+        signature = candidate.form.signature
+        twin = self._by_signature.get(signature)
+        if twin is not None:
+            raise LibraryFormatError(
+                f"Composant {name!r} : même fonction que {twin!r} (une seule "
+                "découverte par signature)."
+            )
+        self._components[name] = Component(
+            name, circuit, signature, candidate.form.input_order
+        )
+        self._by_signature[signature] = name
+
+
+def _read_component_file(path: Path) -> tuple[str, Circuit]:
+    """Lit un fichier de composant ; son nom doit être celui du fichier."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise LibraryFormatError(
+            f"{path.name} : fichier illisible ({error})."
+        ) from error
+    try:
+        name, circuit = circuit_from_json(text)
+    except LibraryFormatError as error:
+        raise LibraryFormatError(f"{path.name} : {error}") from error
+    if name != path.stem:
+        raise LibraryFormatError(
+            f"{path.name} : le nom {name!r} dans le fichier ne correspond pas "
+            "au nom du fichier."
+        )
+    return name, circuit
 
 
 def _match_input_order(

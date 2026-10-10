@@ -87,3 +87,7 @@ class UnstableCircuitError(LibraryError):
 
 class UnknownComponentNameError(LibraryError):
     """Aucun composant de la bibliothèque ne porte ce nom."""
+
+
+class LibraryFormatError(LibraryError):
+    """Un fichier de bibliothèque est illisible, incomplet ou incohérent."""
