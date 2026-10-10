@@ -30,12 +30,23 @@ def input_patterns(input_count: int) -> tuple[int, ...]:
 
     Le bit k du signal de l'entrée i vaut le bit i de k. Avec 2 entrées :
     A = 0b1010 et B = 0b1100.
+
+    Le signal de l'entrée i est un motif de ``2**i`` zéros puis ``2**i`` uns, répété
+    sur toute la longueur. On le construit en doublant le motif (``input_count``
+    décalages), au lieu d'additionner ``2**n`` bits un par un : c'est ce qui permet
+    de monter à beaucoup d'entrées.
     """
     combination_count = _combination_count(input_count)
-    return tuple(
-        sum(((k >> i) & 1) << k for k in range(combination_count))
-        for i in range(input_count)
-    )
+    patterns: list[int] = []
+    for i in range(input_count):
+        half_period = 1 << i
+        pattern = ((1 << half_period) - 1) << half_period
+        width = 2 * half_period
+        while width < combination_count:
+            pattern |= pattern << width
+            width *= 2
+        patterns.append(pattern)
+    return tuple(patterns)
 
 
 @dataclass(frozen=True)

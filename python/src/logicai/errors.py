@@ -55,3 +55,7 @@ class WireLoopError(FlattenError):
 
 class SimulationError(Exception):
     """La simulation ne peut pas tourner avec ces données (entrées, état, masque)."""
+
+
+class SignatureError(Exception):
+    """La signature ne peut pas être calculée avec ces données."""
