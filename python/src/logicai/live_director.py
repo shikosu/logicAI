@@ -4,9 +4,10 @@ L'entraînement va à pleine vitesse ; ce que voit Unity doit être lent et lisi
 (cahier : « un essai en direct au ralenti, plus la rediffusion de chaque découverte »).
 Le directeur règle le **rythme**, sans jamais faire attendre l'entraînement :
 
-- le fil d'entraînement ne fait que des appels courts (``wants_trial``, ``offer_trial``,
-  ``announce_discovery``, ``update_stats``) ; il construit lui-même les messages, donc
-  il est le seul à toucher à la bibliothèque (pas de course) ;
+- le fil d'entraînement ne fait que des appels courts (``wants_trial``,
+  ``wants_priority_trial``, ``offer_trial``, ``announce_discovery``, ``update_stats``) ;
+  il construit lui-même les messages, donc il est le seul à toucher à la bibliothèque
+  (pas de course) ;
 - un autre fil, le **fil de présentation**, appelle ``pump`` régulièrement : ``pump``
   envoie ce qui est dû, d'après une horloge.
 
@@ -16,6 +17,9 @@ Le rythme :
   image**, toutes les ``frame_interval`` secondes ; le premier part tout de suite ;
 - un nouvel essai n'est demandé que ``trial_interval`` secondes après la fin du
   précédent ;
+- un essai **prioritaire** (une découverte) part tout de suite, même pendant cette
+  pause, et passe devant un essai ordinaire en cours ; un essai prioritaire en cours
+  n'est jamais interrompu (ni par un autre essai prioritaire, ni par un ordinaire) ;
 - les ``stats`` partent au plus toutes les ``stats_interval`` secondes, et seulement
   s'il y en a de nouvelles (seules les dernières comptent) ;
 - les découvertes partent à la prochaine occasion, dans l'ordre, sans attendre le
@@ -79,6 +83,8 @@ class LiveDirector:
         self._lock = threading.Lock()
         # État partagé entre le fil d'entraînement et le fil de présentation.
         self._frames: deque[Message] = deque()
+        # L'essai en cours est prioritaire (lu seulement quand des images attendent).
+        self._priority_show = False
         self._next_frame_time = 0.0
         self._next_trial_time = 0.0
         self._discoveries: deque[Message] = deque()
@@ -94,16 +100,26 @@ class LiveDirector:
         with self._lock:
             return not self._frames and self._clock() >= self._next_trial_time
 
-    def offer_trial(self, messages: Sequence[Message]) -> None:
+    def wants_priority_trial(self) -> bool:
+        """Dit si un essai prioritaire peut être montré (aucun autre en cours)."""
+        with self._lock:
+            return not (self._frames and self._priority_show)
+
+    def offer_trial(self, messages: Sequence[Message], priority: bool = False) -> None:
         """Propose un essai à montrer (suite de messages) ; remplace l'essai en cours.
 
         Le premier message part dès le prochain ``pump``, les suivants à raison d'un
-        par ``frame_interval``. Une suite vide est ignorée.
+        par ``frame_interval``. Une suite vide est ignorée. Un essai prioritaire
+        (une découverte) n'attend pas la pause entre deux essais ; tant qu'il est en
+        cours, toute autre proposition est ignorée.
         """
         if not messages:
             return
         with self._lock:
+            if self._frames and self._priority_show:
+                return
             self._frames = deque(messages)
+            self._priority_show = priority
             self._next_frame_time = self._clock()
 
     def announce_discovery(self, message: Message) -> None:
