@@ -216,7 +216,7 @@ Les `.meta` des 5 nouveaux fichiers seront créés par l'Unity de Téo à la pre
 de Téo ne contenait pas encore mes commits (le script copie `Assets/` depuis le dossier où il est lancé). Je n'ai donc rien conclu de ce résultat. Après avoir récupéré la branche : `total: 99` (65 + 34), 99 réussis, 0 échec, 0 ignoré.
 Le C# compile donc, et mes paris sur `JsonUtility` (dont « `3` lu comme un `float` ») sont confirmés. Leçon à garder : toujours comparer le **total** au compte attendu, pas seulement « 0 échec ».
 
-### Étape 8 écrite : connexion à Python en C# (**NON compilée, NON testée : à vérifier par Téo**)
+### Étape 8 faite : connexion à Python en C# (écrite ici, **vérifiée par Téo : 117 tests sur 117 verts**)
 
 Fichiers (aucun `.meta` créé) :
 
@@ -238,13 +238,13 @@ Choix de conception :
 
 Règle d'hygiène apprise à l'étape 7 : **comparer le total de tests au compte attendu**. Attendu après l'étape 8 : **99 + 18 = 117**.
 
-Ce que j'ai vérifié ici : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python n'a pas changé depuis les derniers contrôles verts (875 tests). **Ce que je n'ai pas pu vérifier : que le C# compile et que les 18 tests passent.**
-Paris restants (comportements du réseau que je n'ai pu essayer ici) : sur macOS, `Poll` + `Available == 0` du côté « Python » des tests détecte bien la fermeture par Unity ; un port libéré peut être relié aussitôt (test `ServerStartedAfterUnity_IsJoinedAutomatically`).
-Si l'un de ces tests échoue, je regarde d'abord si c'est le test ou la connexion qui est en tort.
+**Preuve de Téo (10 octobre 2026)** : `tools/run_unity_tests.sh EditMode` → `{'total': '117', 'passed': '117', 'failed': '0', 'skipped': '0'}`. Le total est celui attendu. Le C# compile et les 18 tests réseau passent du premier coup sur macOS.
+Mes deux paris (fermeture détectée par `Poll` + `Available == 0` ; port libéré aussitôt réutilisable) sont donc confirmés.
+
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python inchangée depuis les derniers contrôles verts (875 tests).
 
 ### Ce qui reste
 
-- **Étape 8 : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, total attendu 117).
 - Étape 9 : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
