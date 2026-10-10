@@ -57,9 +57,39 @@ Deux trous de **mes tests**, trouvés par les mutations et comblés : (1) mes ci
 broche 1 câblée en premier ; (2) le cas « broche courte » échouait pour une autre raison (un autre nœud pas encore posé) et ne prouvait rien sur la broche ; sa mise en place pose maintenant tous les nœuds avant l'étape fautive.
 Le mutant équivalent : retirer l'identifiant de la clé de tri des nœuds ne change rien, car le tri de Python est stable et `circuit.nodes()` est déjà dans l'ordre des identifiants (je garde l'identifiant : il rend le déterminisme explicite).
 
+### Étape 3 faite : serveur de la liaison (`live_server.py`, `tests/test_live_server.py`, `errors.py`)
+
+- `LiveServer(port, max_pending)` : Python **écoute sur 127.0.0.1** (jamais une autre interface), Unity se connecte. `start()` / `stop()` / `with`, `port`, `address`, `connected`, `dropped`, `send(message)`.
+  Bibliothèque standard seulement (`socket`, `select`, `threading`) : aucune dépendance ajoutée.
+- **L'entraînement n'attend jamais Unity** : un seul fil d'E/S avec `select` et des sockets non bloquants (il n'écrit que ce que le système accepte) ; `send` encode le message, le met dans une file bornée (200 messages)
+  et rend la main. Si Unity ne suit pas : on jette les plus anciens `circuit`/`etat`/`stats` (`dropped` les compte) ; les `decouverte` ne sont **jamais** jetées.
+- Le serveur garde toutes les découvertes et les dernières `stats` : un Unity qui se connecte en retard reçoit d'abord ce qu'il a manqué, puis le direct, chaque message une seule fois. Sans client, `circuit` et `etat`
+  sont abandonnés. Un seul client à la fois (le nouveau remplace l'ancien) ; ce que Unity écrit est ignoré.
+- `send` ne lève jamais d'erreur à cause du réseau (ni avant le démarrage, ni après l'arrêt) ; il refuse seulement un message mal formé. Erreur dédiée `LiveServerError` (port pris, 2e démarrage, file de 0).
+
+**Défaut réel trouvé par un test instable, corrigé** : dans la boucle d'E/S, le client était mémorisé au début du tour. Si un nouveau client était accepté pendant ce tour, j'écrivais sur l'ancienne socket (fermée) : l'erreur
+fermait le **nouveau** client. Environ 1 exécution sur 3 d'un test de remplacement échouait. Correction : traiter d'abord les événements du client du début du tour (seulement si c'est encore le client courant),
+accepter en dernier. Vérifié : 60 exécutions de suite des tests de remplacement et de retour, 0 échec ; 8 puis 5 exécutions du fichier complet, 0 échec.
+Autre simplification : trois mécanismes redondants de nettoyage de la file (qui se masquaient entre eux) ont été réduits à un seul, dans la fermeture du client, avec deux tests qui le prouvent.
+
+À savoir : un message en direct envoyé *pendant* un remplacement de client est abandonné (seuls comptent les derniers états ; les découvertes et les stats sont dans l'historique). Les tests se synchronisent donc sur
+la lecture de la première ligne d'historique.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `46 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 21 source files` |
+| `pytest` | `822 passed` en environ 68 s (799 avant, 23 nouveaux, environ 7,5 s pour ce fichier) |
+| Mutations (copie hors du projet) | 22 erreurs volontaires dans `live_server.py`, 21 détectées, 1 équivalente |
+
+La 1re série de mutations avait laissé survivre 7 erreurs : 3 trous de **mes tests** (adresse d'écoute vérifiée côté pair au lieu de côté serveur ; `dropped` non vérifié sans client ; seuls les `etat` inondés, pas les `stats` ni les
+`circuit`), 3 mécanismes redondants (simplifiés, voir ci-dessus), et 1 équivalente : ne pas fermer explicitement la socket d'écoute à l'arrêt revient au même en CPython (elle est fermée à la destruction de l'objet) ;
+je garde la fermeture explicite.
+
 ### Ce qui reste
 
-Étapes 3 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+Étapes 4 à 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
 
 ---
 

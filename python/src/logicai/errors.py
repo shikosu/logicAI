@@ -127,3 +127,7 @@ class InvalidMessageError(ProtocolError):
 
 class InvalidPlacementError(ProtocolError):
     """Un ordre de pose est incohérent (action inconnue, câble avant son nœud...)."""
+
+
+class LiveServerError(ProtocolError):
+    """Le serveur de la liaison avec Unity ne peut pas démarrer ou est mal utilisé."""
