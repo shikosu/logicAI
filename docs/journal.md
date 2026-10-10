@@ -243,9 +243,41 @@ Mes deux paris (fermeture détectée par `Poll` + `Available == 0` ; port libér
 
 Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python inchangée depuis les derniers contrôles verts (875 tests).
 
+### Étape 9a écrite : la logique de l'affichage en direct (**NON compilée, NON testée : à vérifier par Téo**)
+
+Plan validé par Téo (« go ») : l'étape 9 est coupée en **9a** (logique, sans dessin ni réseau) et **9b** (intégration dans `CircuitViewer` et interface). Trois choix de Téo (valeurs par défaut acceptées) :
+le direct démarre par un **clic sur « En direct »** (pas au Play : un test PlayMode exige que le viewer démarre comme avant, et un viewer qui se connecterait tout seul volerait la connexion pendant les tests) ;
+contrôles de rediffusion = **lecture automatique + pause + pas à pas + recommencer** ; vitesse de départ **0,4 s par étape**, à régler par essais.
+
+Fichiers :
+
+- `Assets/Scripts/Runtime/LiveModel.cs` : reçoit les messages déjà lus (`Apply`) et dit **quoi dessiner** (`Shown`, `FitTarget`, `Caption`, `StatsText`) ; `Version` augmente exactement quand le dessin change (le viewer ne redessine pas pour rien).
+  Aucune horloge cachée : la rediffusion avance par `Advance(secondes)`.
+- `Assets/Tests/EditMode/LiveModelTests.cs` : 46 tests, sur les lignes générées par le vrai code Python (`LiveSamples`).
+
+Règles du modèle (chacune a au moins un test) :
+
+| Cas | Comportement |
+| --- | --- |
+| `circuit` | Remplace l'ancien **et efface ses valeurs** |
+| `etat` sans circuit, ou de taille différente, ou aux tableaux manquants | Écarté et compté (`IgnoredFrames`) : le serveur peut jeter un `circuit` en gardant ses `etat` |
+| `decouverte` déjà connue (même nom, genre, coût) | Remplacée sur place : Python renvoie tout l'historique à chaque connexion, pas de doublon |
+| `Reset()` | Efface tout (appelé par le viewer à une nouvelle connexion) |
+| Rediffusion | Part de « rien posé » (rien à dessiner), une pièce par `ReplayStepSeconds` (nœuds puis câbles, via `LivePlacement`), s'arrête à la fin ; relancer la lecture à la fin recommence |
+| Pas à pas | Met en pause ; ◀ s'arrête à 0, ▶ à la fin |
+| Direct pendant une rediffusion | Continue d'être reçu et gardé, sans perturber la rediffusion ; réapparaît au retour au direct |
+| Caméra | Reste cadrée sur le circuit **complet** de la découverte pendant la rediffusion |
+
+Défaut vu en relisant mon code, avant tout test : `CircuitLoader.Validate` ignore les valeurs si les tableaux de l'`etat` sont nuls ; un message construit sans passer par le parseur aurait donc été accepté sans vérification de taille.
+Garde ajoutée dans `ApplyState` (et testée).
+
+Ce que j'ai vérifié ici : accolades, parenthèses, crochets équilibrés ; le nombre de tests (46) ; chaque chaîne remplacée dans les échantillons existe exactement une fois ; chaque test relu contre le code (versions, ordre des étapes, arrondis des flottants :
+je n'ai utilisé que des durées exactes en flottant, comme la moitié ou les 3,25 pas). **Ce que je n'ai pas pu vérifier : que le C# compile et que les 46 tests passent.** Total attendu : **117 + 46 = 163**.
+
 ### Ce qui reste
 
-- Étape 9 : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
+- **Étape 9a : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, total attendu 163).
+- Étape 9b : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
 ---
