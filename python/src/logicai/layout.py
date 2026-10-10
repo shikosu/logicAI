@@ -6,7 +6,7 @@ et (4, 0).
 
 - Les nœuds sont rangés en **colonnes** : ``x = 2 × couche``. La couche d'un nœud est la
   longueur du plus long chemin qui l'atteint depuis une entrée du circuit. Les entrées
-  sont dans la couche 0, les sorties du circuit toutes dans la dernière colonne.
+  et la CLK sont dans la couche 0, les sorties du circuit dans la dernière colonne.
 - Les boucles (câbles qui reviennent en arrière) sont ignorées pour calculer les
   couches : sinon un circuit à boucle n'aurait pas de colonne.
 - Dans une colonne, les nœuds sont empilés de haut en bas, dans l'ordre de la hauteur
@@ -45,6 +45,9 @@ _MIN_LAYER_JUMP = 2
 # Couche des nœuds sans prédécesseur qui ne sont pas des entrées (une NAND sans câble
 # entrant, par exemple) : juste à droite des entrées.
 _FIRST_GATE_LAYER = 1
+
+# Les sources qui n'attendent rien : les entrées et la CLK, toutes dans la couche 0.
+_SOURCE_KINDS = frozenset({NodeKind.INPUT, NodeKind.CLK})
 
 
 @dataclass(frozen=True)
@@ -97,7 +100,7 @@ def _back_edges(
     câble vers un nœud encore en cours de visite ferme une boucle : c'est un retour.
     Sans eux, le graphe n'a plus de cycle.
     """
-    inputs = [n.node_id for n in circuit.nodes() if n.kind is NodeKind.INPUT]
+    inputs = [n.node_id for n in circuit.nodes() if n.kind in _SOURCE_KINDS]
     roots = itertools.chain(inputs, (n.node_id for n in circuit.nodes()))
     in_progress, finished = 1, 2
     state: dict[int, int] = {}
@@ -129,7 +132,7 @@ def _back_edges(
 def _layers(circuit: Circuit, dag_successors: dict[int, list[int]]) -> dict[int, int]:
     """Renvoie la couche de chaque nœud : le plus long chemin depuis une entrée."""
     layer = {
-        node.node_id: 0 if node.kind is NodeKind.INPUT else _FIRST_GATE_LAYER
+        node.node_id: 0 if node.kind in _SOURCE_KINDS else _FIRST_GATE_LAYER
         for node in circuit.nodes()
     }
     waiting = {node.node_id: 0 for node in circuit.nodes()}

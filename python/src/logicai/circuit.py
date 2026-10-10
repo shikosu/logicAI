@@ -22,11 +22,14 @@ from logicai.errors import (
 
 
 class NodeKind(Enum):
-    """Type d'un nœud. La CLK viendra plus tard."""
+    """Type d'un nœud."""
 
     INPUT = auto()
     OUTPUT = auto()
     NAND = auto()
+    # Horloge (cahier, « L'entrée CLK ») : une source fournie par la simulation, que
+    # l'IA câble comme n'importe quelle source. Ce n'est pas une broche du circuit.
+    CLK = auto()
     # Un composant est une boîte noire posée par référence : ses broches dépendent
     # de sa définition, donc elles ne sont pas dans le tableau ``_PIN_COUNTS``.
     COMPONENT = auto()
@@ -67,6 +70,7 @@ _PIN_COUNTS: dict[NodeKind, _PinCounts] = {
     NodeKind.INPUT: _PinCounts(sinks=0, sources=1),
     NodeKind.OUTPUT: _PinCounts(sinks=1, sources=0),
     NodeKind.NAND: _PinCounts(sinks=2, sources=1),
+    NodeKind.CLK: _PinCounts(sinks=0, sources=1),
 }
 
 _PIN_KIND_LABEL: dict[PinKind, str] = {
@@ -91,7 +95,7 @@ class Node:
 
     @classmethod
     def fixed(cls, node_id: int, kind: NodeKind) -> Self:
-        """Crée un nœud INPUT, OUTPUT ou NAND, avec le nombre de broches de son type."""
+        """Crée un nœud INPUT, OUTPUT, NAND ou CLK, avec les broches de son type."""
         if kind is NodeKind.COMPONENT:
             raise InvalidNodeError(
                 "Un composant n'a pas de nombre de broches propre à son type : "
@@ -121,7 +125,7 @@ class Node:
             )
 
     def _check_fixed_kind(self) -> None:
-        """INPUT, OUTPUT et NAND n'ont pas de référence et un nombre de broches fixe."""
+        """Les types fixes n'ont pas de référence et un nombre de broches fixe."""
         if self.component_ref is not None:
             raise InvalidNodeError(
                 f"Un nœud {self.kind.name} n'a pas de définition "
@@ -235,7 +239,7 @@ class Circuit:
         return type(self).from_parts(self.nodes(), wires)
 
     def add_node(self, kind: NodeKind) -> int:
-        """Ajoute un nœud INPUT, OUTPUT ou NAND et renvoie son identifiant."""
+        """Ajoute un nœud INPUT, OUTPUT, NAND ou CLK et renvoie son identifiant."""
         if kind is NodeKind.COMPONENT:
             raise InvalidNodeError(
                 "Un composant se pose avec add_component_node : il faut son nom "
@@ -309,6 +313,10 @@ class Circuit:
     def outputs(self) -> tuple[int, ...]:
         """Renvoie les identifiants des sorties du circuit, dans l'ordre de création."""
         return self._ids_of_kind(NodeKind.OUTPUT)
+
+    def clocks(self) -> tuple[int, ...]:
+        """Renvoie les identifiants des CLK du circuit, dans l'ordre de création."""
+        return self._ids_of_kind(NodeKind.CLK)
 
     def nand_count(self) -> int:
         """Renvoie le nombre de NAND du circuit."""

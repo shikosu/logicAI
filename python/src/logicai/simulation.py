@@ -7,6 +7,12 @@ Les signaux sont des entiers Python. Avec un masque d'un seul bit (``1``), on si
 une seule combinaison d'entrées. Avec un masque plus large, on en simule plusieurs à
 la fois, une par bit (simulation bit-parallèle). Le calcul est le même dans les deux
 cas : une NAND vaut ``~(a & b) & masque``.
+
+La CLK (cahier, « L'entrée CLK ») est une source imposée de l'extérieur, comme une
+entrée : son signal vient de l'appelant (``clock``) et n'a pas de retard. À chaque appel
+la valeur de l'horloge est figée, comme celle des entrées : c'est l'appelant qui la fait
+changer entre deux appels, après avoir laissé le circuit se stabiliser (la demi-période
+de la CLK est toujours plus longue que T_max).
 """
 
 from collections.abc import Sequence
@@ -59,7 +65,7 @@ class _Origin(Enum):
 
     NONE = auto()  # puits non relié : vaut 0
     NAND = auto()  # une NAND : sa valeur au top précédent
-    INPUT = auto()  # une entrée du circuit : la valeur appliquée, sans retard
+    INPUT = auto()  # une entrée du circuit ou la CLK : valeur imposée, sans retard
 
 
 class _Link(NamedTuple):
@@ -79,10 +85,12 @@ class _Plan(NamedTuple):
 _NO_LINK = _Link(_Origin.NONE, _UNWIRED_VALUE)
 
 # Seul endroit qui dit quels types de nœuds peuvent servir de source au calcul.
-# Un nouveau type (composant, CLK) s'ajoutera ici.
+# Un nouveau type de source s'ajoutera ici. La CLK se lit comme une entrée de plus,
+# rangée après les vraies entrées (voir ``_signal_positions``).
 _ORIGIN_OF_KIND: dict[NodeKind, _Origin] = {
     NodeKind.NAND: _Origin.NAND,
     NodeKind.INPUT: _Origin.INPUT,
+    NodeKind.CLK: _Origin.INPUT,
 }
 
 
@@ -96,12 +104,14 @@ def tick(
     input_values: Sequence[int],
     mask: int,
     state: Sequence[int] | None = None,
+    clock: int | None = None,
 ) -> tuple[int, ...]:
     """Renvoie l'état après un seul top (une valeur par NAND).
 
     ``state`` est l'état au top précédent ; sans lui, toutes les NAND valent 0.
+    ``clock`` est la valeur de la CLK, obligatoire si le circuit en a une.
     """
-    plan, inputs, current = _prepare(circuit, input_values, mask, state)
+    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock)
     return _advance(plan, current, inputs, mask)
 
 
@@ -110,13 +120,16 @@ def settle(
     input_values: Sequence[int],
     mask: int,
     state: Sequence[int] | None = None,
+    clock: int | None = None,
 ) -> SettleResult:
     """Fait tourner des tops, sur des entrées figées, jusqu'à la stabilité.
 
     On calcule au plus T_max + 1 tops. Le circuit est STABLE dès qu'un top ne change
-    aucune valeur ; il est UNSTABLE s'il change encore au top T_max + 1.
+    aucune valeur ; il est UNSTABLE s'il change encore au top T_max + 1. ``clock`` est
+    la valeur de la CLK, figée comme les entrées ; elle est obligatoire si le circuit
+    a une CLK.
     """
-    plan, inputs, current = _prepare(circuit, input_values, mask, state)
+    plan, inputs, current = _prepare(circuit, input_values, mask, state, clock)
     limit = max_ticks(circuit)
     for tick_number in range(1, limit + 1):
         following = _advance(plan, current, inputs, mask)
@@ -134,8 +147,12 @@ def _prepare(
     input_values: Sequence[int],
     mask: int,
     state: Sequence[int] | None,
+    clock: int | None,
 ) -> tuple[_Plan, tuple[int, ...], tuple[int, ...]]:
-    """Contrôle les données puis prépare le plan, les entrées et l'état de départ."""
+    """Contrôle les données puis prépare le plan, les signaux et l'état de départ.
+
+    Les signaux sont les entrées suivies d'une dernière case, la valeur de l'horloge.
+    """
     _check_flat(circuit)
     _check_mask(mask)
     inputs = tuple(input_values)
@@ -145,6 +162,7 @@ def _prepare(
             f"mais {len(inputs)} valeur(s) sont données."
         )
     _check_range(inputs, mask, "d'entrée")
+    signals = (*inputs, _clock_value(circuit, clock, mask))
 
     nand_count = circuit.nand_count()
     if state is None:
@@ -157,7 +175,23 @@ def _prepare(
                 f"mais l'état donne {len(current)} valeur(s)."
             )
         _check_range(current, mask, "d'état")
-    return _compile(circuit), inputs, current
+    return _compile(circuit), signals, current
+
+
+def _clock_value(circuit: Circuit, clock: int | None, mask: int) -> int:
+    """Renvoie la valeur imposée à la CLK ; un circuit qui en a une doit la recevoir.
+
+    Sans CLK dans le circuit, la valeur n'est lue par personne.
+    """
+    if clock is None:
+        if circuit.clocks():
+            raise SimulationError(
+                "Le circuit a une CLK : il faut donner la valeur de l'horloge "
+                "(argument clock)."
+            )
+        return _UNWIRED_VALUE
+    _check_range((clock,), mask, "d'horloge")
+    return clock
 
 
 def _check_flat(circuit: Circuit) -> None:
@@ -196,9 +230,7 @@ def _compile(circuit: Circuit) -> _Plan:
                 n for n in circuit.nodes() if n.kind is NodeKind.NAND
             )
         },
-        _Origin.INPUT: {
-            node_id: position for position, node_id in enumerate(circuit.inputs())
-        },
+        _Origin.INPUT: _signal_positions(circuit),
     }
     nand_links = tuple(
         (
@@ -212,6 +244,18 @@ def _compile(circuit: Circuit) -> _Plan:
         for output_id in circuit.outputs()
     )
     return _Plan(nand_links, output_links)
+
+
+def _signal_positions(circuit: Circuit) -> dict[int, int]:
+    """Donne la case de chaque entrée, puis la case unique de toutes les CLK.
+
+    Toutes les CLK d'un circuit partagent la même horloge : elles lisent la même case,
+    placée juste après les entrées.
+    """
+    inputs = circuit.inputs()
+    positions = {node_id: position for position, node_id in enumerate(inputs)}
+    positions.update(dict.fromkeys(circuit.clocks(), len(inputs)))
+    return positions
 
 
 def _link(
