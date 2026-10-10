@@ -104,3 +104,11 @@ Vérifiées le 10 octobre 2026 sur cette machine (macOS, zsh, Python 3.14.7 de H
   - `ruff check`
   - `ruff format --check`
   - `mypy` (strict, sur `src/`)
+- Régénérer les fichiers d'exemples pour Unity (dossier `circuits/`, à la racine) :
+  `cd python && PYTHONPATH=src .venv/bin/python -m logicai.examples ../circuits`
+- Tests Unity (phase 3), vérifiés le 10 octobre 2026 avec Unity 6000.3.7f1 : l'éditeur est ouvert sur le projet,
+  donc on teste une **copie** (le vrai projet n'est jamais modifié), depuis la racine du projet :
+  - `tools/run_unity_tests.sh EditMode` (65 tests : lecture, géométrie, dessin lu au pixel, viewer)
+  - `tools/run_unity_tests.sh PlayMode` (2 tests : démarrage tout seul du viewer, cadrage de la caméra)
+  - `LOGICAI_RENDER_DIR=/chemin/dossier tools/run_unity_tests.sh` écrit en plus une image PNG par circuit dessiné.
+  La première exécution importe le projet (une quarantaine de secondes). Ne jamais lancer un second Unity sur le vrai dossier.

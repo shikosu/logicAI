@@ -4,6 +4,94 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 3 : phase 3 (affichage Unity statique)
+
+### Ce qui est fait
+
+Quatre sous-étapes, chacune testée, éprouvée par mutations puis commitée :
+
+| # | Commit | Contenu |
+| --- | --- | --- |
+| 1 | `ed4f143` | Python `layout.py` : placement des nœuds (colonnes, boucles ignorées, lignes) |
+| 2 | `c05c3a5` | Python `snapshot.py` (valeurs 0/1), JSON avec `x`, `y` et `etat`, `examples.py` + dossier `circuits/` (31 fichiers) |
+| 3 | `d607114` | Unity : lecture et vérification du JSON, géométrie (boîtes, broches, tracé des câbles) |
+| 4 | `cede146` | Unity : dessin (câbles et portes colorés par valeur), viewer qui démarre au Play ; correctifs de lisibilité vus sur les images |
+
+Le test de la phase 3 du cahier est atteint : les circuits de la phase 1 s'affichent, câbles colorés selon leur valeur. La preuve est
+automatique (couleur lue **au pixel** de chaque câble des 31 fichiers, dans une image rendue par Unity) et visuelle (images regardées).
+**Il reste à faire une vérification visuelle par Téo dans son éditeur** (voir « Ce qui reste »).
+
+Réponses de Téo en début de session : JSON avec `entrees` et `sorties` sur un nœud composant (oui), liste de noms connus (oui),
+repli au-delà de 5 040 ordres (acceptable). Et : « Python calcule, Unity ne fait que du front end » : Python calcule les positions
+`x` et `y` et les valeurs 0/1 des fils.
+
+### Résultats des contrôles (fin de session)
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `29 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 13 source files` |
+| `pytest` | `439 passed` (369 en début de session) |
+| Unity EditMode | 65 réussis (`tools/run_unity_tests.sh EditMode`) |
+| Unity PlayMode | 2 réussis (`tools/run_unity_tests.sh PlayMode`) |
+
+Mutations sur une copie hors du projet : 35 erreurs volontaires dans le Python, 29 dans le C# ; toutes détectées. Deux survivantes ont
+été examinées au lieu d'être ignorées : une condition inutile de `HasState` (simplifiée) et un test du placement qui ne distinguait pas la
+hauteur d'une broche de celle du centre du composant (réécrit).
+
+### Décisions prises (plan validé par Téo avec « OK avec tes recommandations »)
+
+1. `x` et `y` sont calculés par Python et **écrits partout**, bibliothèque comprise. Un NOT redonne exactement l'exemple du cahier
+   ((0,0), (2,0), (4,0)). Cela remplace la décision de la phase 2 (« jamais écrits »).
+2. Format `etat` : `{"top", "stable", "noeuds": [...], "cables": [...]}`, listes dans l'ordre de `noeuds` et `cables`. Ignoré à la lecture.
+   Pas de valeurs pour un circuit qui contient des composants (câbles gris neutre).
+3. Unity lit directement le dossier `circuits/` (outil de développement ; en phase 5, ce sera le socket).
+4. Placement des nœuds en Python, tracé exact des câbles entre deux broches en Unity.
+5. Un peu d'interface : liste cliquable (IMGUI, car seul le **nouveau** Input System est actif).
+6. Aucune modification de la scène, de `ProjectSettings/`, de `Packages/` ni d'un `.meta` existant : le viewer démarre tout seul au Play.
+7. Les champs des classes C# de données sont en français (`noeuds`, `cables`, `etat`...) : `JsonUtility` exige les noms des clés du fichier.
+
+### Ce que la vérification a appris
+
+- **Les tests de pixels ne suffisent pas, il faut regarder les images.** Elles ont montré deux défauts de lisibilité que mes points de mesure
+  ne pouvaient pas voir : (a) un câble qui saute une colonne passait **à travers** une porte (tronçon vertical au milieu) : corrigé dans Unity ;
+  (b) deux câbles se **superposaient** à droite de la bascule SR (la porte Q̄ à la même hauteur que le câble de Q) : corrigé dans le placement Python,
+  où une boîte est descendue si elle tombe sur un câble qui saute sa colonne.
+- Un test de la phase 2 que j'avais annoncé « 2 » à modifier était en fait **3** (le dictionnaire d'un nœud composant). Un test de la sous-étape 3
+  a été modifié parce que la règle de tracé a changé après avoir regardé l'image.
+- Unity ne peut pas être lancé une 2e fois sur un projet déjà ouvert : les tests tournent sur une **copie** (`tools/run_unity_tests.sh`,
+  environ 40 s pour la première importation). Le rendu hors écran fonctionne en mode batch (Metal, URP).
+
+### Limites connues
+
+- Le tracé des câbles reste simple. Un câble qui revient en arrière passe par un couloir au-dessus des deux broches : il peut traverser une boîte
+  haute d'une colonne intermédiaire. Deux câbles de sources différentes qui montent au même `x` vers la même numéro de broche peuvent se confondre.
+- Les valeurs 0/1 ne sont pas calculées pour un circuit avec composants (leurs fils internes ne sont pas suivis).
+- La règle de hauteur d'une boîte (`box_height`) est écrite deux fois (Python et C#) ; les deux sont testées avec les mêmes valeurs, mais un changement
+  doit être fait des deux côtés. Idem pour `XScale`, `YScale` côté Unity.
+- Si le placement change, `circuits/` doit être régénéré (commande dans `CLAUDE.md`).
+- `JsonUtility` ne distingue pas une clé `noeuds` absente d'une liste vide : un fichier sans `noeuds` est lu comme un circuit vide.
+- Pas de navigation au clavier dans le viewer (il faudrait le nouveau Input System).
+- Python 3.11 : toujours pas vérifié par exécution.
+
+### Points à valider par Téo
+
+- **Vérification visuelle dans Unity** : ouvrir l'éditeur (hors Play), laisser Unity importer, puis lancer le Play : la liste des 31 circuits
+  apparaît à gauche ; cliquer sur quelques circuits. Les couleurs (0 bleu-gris, 1 jaune, instable en rouge sombre), les étiquettes
+  (A, B, NAND, S, S1, S2) et la disposition te conviennent-elles ?
+- **Fichiers `.meta`** : ton Unity doit générer ceux de `Assets/Scripts/`, `Assets/Tests/` et de leurs fichiers ; ils seront commités à part.
+- `tools/run_unity_tests.sh` est un fichier ajouté en dehors du plan (pour rendre la vérification Unity reproductible).
+- Cahier : un fichier de circuit contient maintenant `x`, `y` et, facultativement, `etat` ; le message « etat » du cahier et la clé `etat` du fichier
+  ont la même forme.
+
+### Ce qui reste
+
+- Commit des `.meta` générés par Unity, puis vérification visuelle par Téo.
+- **Phase 4** (IA évolutionnaire, paliers 1 à 3 : mutations, récompense, filtres, changement de palier) : non commencée.
+
+---
+
 ## 10 octobre 2026 — Session 2 : phase 2 (bibliothèque et encapsulation)
 
 ### Ce qui est fait
