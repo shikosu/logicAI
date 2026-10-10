@@ -225,8 +225,8 @@ def test_reports_count_trials_and_sum_rewards() -> None:
 def test_records_are_discoveries_but_not_novelties() -> None:
     # Règle : un record (même signature, moins de NAND) est une découverte, mais pas
     # une nouveauté : « aucune nouveauté pendant N générations » (palier) l'ignore.
-    # On prend une exécution où des records ont lieu (graine 4, palier 2).
-    evolution, _ = _populated(seed=4, extra_generations=0)
+    # On prend une exécution où des records ont lieu (graine 3, palier 2).
+    evolution, _ = _populated(seed=3, extra_generations=0)
     evolution.rules = LEVEL_2
     reports = [evolution.step() for _ in range(20)]
     with_record = [
