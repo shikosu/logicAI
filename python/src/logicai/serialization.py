@@ -73,7 +73,7 @@ def circuit_to_dict(
     result: dict[str, Any] = {
         "nom": name,
         "noeuds": [
-            _node_to_dict(node, layout[node.node_id]) for node in circuit.nodes()
+            node_to_dict(node, layout[node.node_id]) for node in circuit.nodes()
         ],
         "cables": [
             {
@@ -84,7 +84,7 @@ def circuit_to_dict(
         ],
     }
     if snapshot is not None:
-        result["etat"] = _state_to_dict(circuit, snapshot)
+        result["etat"] = state_to_dict(circuit, snapshot)
     return result
 
 
@@ -121,7 +121,7 @@ def circuit_from_dict(data: object) -> tuple[str, Circuit]:
 # --- Écriture --------------------------------------------------------------------
 
 
-def _node_to_dict(node: Node, position: Position) -> dict[str, Any]:
+def node_to_dict(node: Node, position: Position) -> dict[str, Any]:
     """Écrit un nœud ; un composant porte son nom de définition et ses broches."""
     result: dict[str, Any] = {
         "id": node.node_id,
@@ -136,7 +136,7 @@ def _node_to_dict(node: Node, position: Position) -> dict[str, Any]:
     return result
 
 
-def _state_to_dict(circuit: Circuit, snapshot: Snapshot) -> dict[str, Any]:
+def state_to_dict(circuit: Circuit, snapshot: Snapshot) -> dict[str, Any]:
     """Écrit un relevé de valeurs, après avoir vérifié qu'il correspond au circuit."""
     node_count, wire_count = len(circuit.nodes()), len(circuit.wires())
     if (len(snapshot.node_values), len(snapshot.wire_values)) != (

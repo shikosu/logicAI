@@ -33,6 +33,7 @@ valeurs de départ seront réglées par essais.
 
 import random
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from logicai.circuit import Circuit, NodeKind
@@ -107,6 +108,10 @@ class Evolution:
 
     ``rules`` (réglages du palier) peut être changée entre deux générations, par
     exemple pour passer au palier suivant.
+
+    ``on_trial``, facultatif, est appelé après chaque essai avec l'enfant et son
+    résultat (par exemple pour l'afficher). Il doit être court : il s'exécute dans la
+    boucle d'entraînement. Une erreur qu'il lève n'est pas cachée.
     """
 
     def __init__(
@@ -116,6 +121,7 @@ class Evolution:
         settings: EvolutionSettings | None = None,
         reward_settings: RewardSettings | None = None,
         seed: int = 0,
+        on_trial: Callable[[Circuit, TrialResult], None] | None = None,
     ) -> None:
         """Crée l'IA : sa bibliothèque (qu'elle fait grandir), son palier, sa graine."""
         self._library = library
@@ -123,6 +129,7 @@ class Evolution:
         self._settings = settings if settings is not None else EvolutionSettings()
         self._tracker = RewardTracker(library, reward_settings)
         self._rng = random.Random(seed)
+        self._on_trial = on_trial
         self._recent: deque[Circuit] = deque(maxlen=self._settings.recent_size)
         self._generation = 0
 
@@ -174,6 +181,8 @@ class Evolution:
         result = self._tracker.evaluate(child)
         if result.kind is not TrialKind.REJECTED:
             self._recent.append(remove_useless_nodes(child))
+        if self._on_trial is not None:
+            self._on_trial(child, result)
         return result
 
 

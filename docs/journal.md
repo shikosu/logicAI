@@ -4,7 +4,184 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 5 faites
+## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), en cours
+
+### Plan validé par Téo
+
+Test du cahier : « on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse ». Décisions de Téo : **Python écoute sur 127.0.0.1, Unity se connecte** ;
+**Python testé ici, C# écrit ici mais vérifié par Téo sur son Mac** (ni Unity, ni dotnet, ni Mono sur cette machine : le C# ne peut être ni compilé ni testé ici ; vérifié par commande).
+Étapes Python : (1) `protocol.py`, (2) `replay.py` (ordre de pose), (3) `live_server.py` (transport non bloquant), (4) `live_director.py` (quoi montrer, à quel rythme),
+(5) branchement dans `Evolution` + `python -m logicai.live`, (6) test de la phase côté Python. Étapes C# : (7) messages, (8) connexion, (9) interface. Plan complet : voir le fichier de plan de la session.
+
+Protocole proposé (le cahier ne le précise pas) : une ligne de JSON UTF-8 par message, clé `"message"` = type ; types `circuit`, `etat`, `decouverte`, `stats` (le type `action` est pour la phase 7).
+
+### Étape 1 faite : messages (`protocol.py`, `tests/test_protocol.py`, `serialization.py`, `errors.py`)
+
+- `circuit_message`, `state_message`, `discovery_message` (nom, genre `nouveaute`/`record`, coût, circuit avec composants, ordre de pose), `stats_message` ; `encode_message` (une seule ligne, UTF-8 sans échappement des accents,
+  écriture compacte, NaN et infini refusés) et `decode_message` ; erreurs dédiées `ProtocolError` / `InvalidMessageError`.
+- `serialization._state_to_dict` devient publique (`state_to_dict`) : la clé `etat` d'un fichier et le message `etat` ont la même forme (cahier).
+- Vérifié : un socket local fonctionne dans cet environnement (essai jetable).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `42 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 19 source files` |
+| `pytest` | `723 passed` (701 avant, 22 nouveaux) |
+| Mutations (copie hors du projet) | 17 erreurs volontaires dans `protocol.py`, 17 détectées |
+
+Erreur de ma part, corrigée avant le commit : mon test supposait que le relevé d'un NOT stabilisé est au top 1 ; le code de la phase 3 donne le top 2 (le top 1 fait passer la NAND à 1, le top 2 confirme
+que rien ne bouge), conformément à sa définition (« top de confirmation compris »).
+
+### Étape 2 faite : ordre de pose (`replay.py`, `tests/test_replay.py`, `serialization.py`, `errors.py`)
+
+- `placement_order(circuit)` : **les nœuds dans l'ordre des signaux, puis les câbles** (cahier). Nœuds triés par colonne `x` puis `y` (positions de `layout.py`), câbles après tous les nœuds, triés selon la pose de leur
+  puits puis le numéro de broche. Chaque étape est `{"action":"poser","noeud":{...}}` (nœud écrit comme dans un fichier, avec `x` et `y`) ou `{"action":"cabler","de":[n,p],"vers":[n,p]}` : le vocabulaire du futur
+  message « action » (phase 7).
+- `circuit_from_placement(steps, count)` fait l'inverse (les `count` premières étapes) : c'est ce que fera Unity pour la rediffusion, et ce qui permet de tester l'ordre. Réutilise `circuit_from_dict`.
+  Étapes incohérentes (action inconnue, câble avant son nœud, broche mal formée) : `InvalidPlacementError` ; règles du circuit violées (puits déjà relié, nœud posé deux fois) : `LibraryFormatError`.
+- `serialization._node_to_dict` devient publique (`node_to_dict`).
+- Le NOT redonne exactement l'exemple du cahier : entrée (0, 0), NAND (2, 0), sortie (4, 0), puis ses 3 câbles.
+- Test principal : rejouer l'ordre redonne exactement le circuit (même nœuds et identifiants, mêmes câbles), y compris sur 40 circuits au hasard avec boucles, et le comportement (table de vérité) est conservé ;
+  chaque préfixe de l'ordre est un circuit légal qui grandit d'une pièce à la fois.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `44 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 20 source files` |
+| `pytest` | `799 passed` en environ 59 s (723 avant, 76 nouveaux) |
+| Mutations (copie hors du projet) | 18 erreurs volontaires dans `replay.py`, 17 détectées, 1 équivalente |
+
+Deux trous de **mes tests**, trouvés par les mutations et comblés : (1) mes circuits câblaient toujours la broche 0 avant la broche 1, donc l'ordre d'insertion donnait par hasard le bon ordre des câbles ; test ajouté avec la
+broche 1 câblée en premier ; (2) le cas « broche courte » échouait pour une autre raison (un autre nœud pas encore posé) et ne prouvait rien sur la broche ; sa mise en place pose maintenant tous les nœuds avant l'étape fautive.
+Le mutant équivalent : retirer l'identifiant de la clé de tri des nœuds ne change rien, car le tri de Python est stable et `circuit.nodes()` est déjà dans l'ordre des identifiants (je garde l'identifiant : il rend le déterminisme explicite).
+
+### Étape 3 faite : serveur de la liaison (`live_server.py`, `tests/test_live_server.py`, `errors.py`)
+
+- `LiveServer(port, max_pending)` : Python **écoute sur 127.0.0.1** (jamais une autre interface), Unity se connecte. `start()` / `stop()` / `with`, `port`, `address`, `connected`, `dropped`, `send(message)`.
+  Bibliothèque standard seulement (`socket`, `select`, `threading`) : aucune dépendance ajoutée.
+- **L'entraînement n'attend jamais Unity** : un seul fil d'E/S avec `select` et des sockets non bloquants (il n'écrit que ce que le système accepte) ; `send` encode le message, le met dans une file bornée (200 messages)
+  et rend la main. Si Unity ne suit pas : on jette les plus anciens `circuit`/`etat`/`stats` (`dropped` les compte) ; les `decouverte` ne sont **jamais** jetées.
+- Le serveur garde toutes les découvertes et les dernières `stats` : un Unity qui se connecte en retard reçoit d'abord ce qu'il a manqué, puis le direct, chaque message une seule fois. Sans client, `circuit` et `etat`
+  sont abandonnés. Un seul client à la fois (le nouveau remplace l'ancien) ; ce que Unity écrit est ignoré.
+- `send` ne lève jamais d'erreur à cause du réseau (ni avant le démarrage, ni après l'arrêt) ; il refuse seulement un message mal formé. Erreur dédiée `LiveServerError` (port pris, 2e démarrage, file de 0).
+
+**Défaut réel trouvé par un test instable, corrigé** : dans la boucle d'E/S, le client était mémorisé au début du tour. Si un nouveau client était accepté pendant ce tour, j'écrivais sur l'ancienne socket (fermée) : l'erreur
+fermait le **nouveau** client. Environ 1 exécution sur 3 d'un test de remplacement échouait. Correction : traiter d'abord les événements du client du début du tour (seulement si c'est encore le client courant),
+accepter en dernier. Vérifié : 60 exécutions de suite des tests de remplacement et de retour, 0 échec ; 8 puis 5 exécutions du fichier complet, 0 échec.
+Autre simplification : trois mécanismes redondants de nettoyage de la file (qui se masquaient entre eux) ont été réduits à un seul, dans la fermeture du client, avec deux tests qui le prouvent.
+
+À savoir : un message en direct envoyé *pendant* un remplacement de client est abandonné (seuls comptent les derniers états ; les découvertes et les stats sont dans l'historique). Les tests se synchronisent donc sur
+la lecture de la première ligne d'historique.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `46 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 21 source files` |
+| `pytest` | `822 passed` en environ 68 s (799 avant, 23 nouveaux, environ 7,5 s pour ce fichier) |
+| Mutations (copie hors du projet) | 22 erreurs volontaires dans `live_server.py`, 21 détectées, 1 équivalente |
+
+La 1re série de mutations avait laissé survivre 7 erreurs : 3 trous de **mes tests** (adresse d'écoute vérifiée côté pair au lieu de côté serveur ; `dropped` non vérifié sans client ; seuls les `etat` inondés, pas les `stats` ni les
+`circuit`), 3 mécanismes redondants (simplifiés, voir ci-dessus), et 1 équivalente : ne pas fermer explicitement la socket d'écoute à l'arrêt revient au même en CPython (elle est fermée à la destruction de l'objet) ;
+je garde la fermeture explicite.
+
+### Étape 4 faite : ce qu'on montre et à quel rythme (`live_show.py`, `live_director.py`, tests, `errors.py`)
+
+**`live_show.py` — ce qu'on montre.** `trial_messages(circuit, definitions)` : un message `circuit` (le circuit **aplati puis nettoyé**, nom `essai`, avec ses positions) suivi, pour chaque combinaison d'entrées,
+des messages `etat` **top par top**, du top 0 au premier top stable (ou jusqu'à T_max + 1 si le circuit est instable). L'entrée i de la combinaison k vaut le bit i de k (convention des tables de vérité) ; au plus
+8 combinaisons (`MAX_SHOWN_COMBINATIONS`). Aplati parce que les valeurs ne sont pas suivies dans un composant (limite de la phase 3) ; nettoyé pour montrer ce que le simulateur garde.
+Les images du NOT (A = 0 : top 0 la NAND vaut encore 0, top 1 elle vaut 1 ; A = 1 : déjà stable) ont été calculées **à la main** d'après le cahier avant de lancer le test, et le code les redonne.
+
+**`live_director.py` — quand.** `LiveDirector(send, clock, trial_interval, frame_interval, stats_interval)`. Le fil d'entraînement ne fait que des appels courts : `wants_trial()`, `offer_trial(messages)`,
+`announce_discovery(message)`, `update_stats(message)` ; il construit lui-même les messages (donc seul à toucher à la bibliothèque, pas de course). Un fil de présentation (`start`/`stop`) appelle `pump()` toutes les 20 ms :
+un message par image toutes les `frame_interval` secondes (le 1er tout de suite, jamais deux d'un coup, même en retard) ; un nouvel essai n'est voulu que `trial_interval` après la dernière image ; stats au plus toutes les
+`stats_interval` s et seulement si elles sont nouvelles ; découvertes envoyées au prochain `pump`, dans l'ordre, sans perturber le rythme des images. Une erreur d'envoi est journalisée et ignorée par le fil.
+Horloge injectée : les tests utilisent une fausse horloge, sans attente réelle.
+
+**Valeurs de départ (à régler par essais, de ma main)** : 3 s de pause entre deux essais montrés, 0,5 s par image, stats au plus 1 par seconde. À titre d'ordre de grandeur, un essai à 2 entrées dure de l'ordre de 5 à 6 s.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `50 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 23 source files` |
+| `pytest` | `854 passed` en environ 66 s (822 avant, 32 nouveaux : 13 + 19 ; 0,5 s pour ces deux fichiers) |
+| Mutations (copie hors du projet) | `live_show.py` 13 erreurs volontaires, 13 détectées ; `live_director.py` 23, 23 détectées |
+
+Deux trous de **mes tests**, trouvés par les mutations et comblés : le nom `essai` n'était comparé qu'à la constante qui le définit (donc toujours vrai) ; il est maintenant écrit en dur, car Unity l'affiche dans sa ligne d'état ;
+et proposer une suite vide pendant un essai en cours (qui doit être ignorée sans interrompre l'essai) n'était testé qu'au repos.
+
+### Étape 5 faite : branchement (`live.py`, crochet dans `evolution.py`, tests `test_live.py` et `test_evolution.py`)
+
+- **Crochet** : `Evolution(..., on_trial=...)` rappelle `on_trial(enfant, résultat)` après chaque essai (l'enfant tel qu'essayé, nœuds inutiles compris). Facultatif, 9 lignes ; une erreur du crochet n'est pas cachée.
+- **`LiveSession(director, seed, stalled_generations, ...)`** relie l'IA (bibliothèque vide, paliers via `Curriculum`) au directeur. À chaque essai : une **nouveauté ou un record** devient tout de suite un message `decouverte`
+  (circuit tel que dans la bibliothèque à cet instant, coût aplati, ordre de pose de `replay.py`) ; sinon, si `director.wants_trial()`, un essai **accepté** est préparé (`live_show.trial_messages`) et proposé.
+  À chaque génération : un message `stats` (palier, génération, nombre de découvertes, récompense moyenne = totale / essais). Une erreur d'affichage est journalisée et **ne casse jamais l'entraînement**.
+- **Commande** : `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live [--port N] [--seed S] [--generations G]` (sans `--generations`, jusqu'à Ctrl-C ; port 8765 par défaut). Journal sur stderr (pas de `print`),
+  code de sortie 0, ou 2 si le port est pris (message clair, pas de traceback). **Vérifiée à la main sur cette machine** avec un faux Unity : NOT découvert, stats reçues, code 0.
+  Elle n'est pas encore dans la section « Commandes vérifiées » de `CLAUDE.md` (fichier de Téo) : proposition d'y ajouter la ligne ci-dessus après sa propre vérification sur le Mac.
+- **À retenir pour le C#** (constaté à la main) : un Unity qui se connecte en pleine animation reçoit des `etat` **sans** le message `circuit` qui les précède (parti avant sa connexion) ; il doit les ignorer tant qu'il n'a pas de circuit.
+  Il peut donc se passer jusqu'à une pause + un essai (de l'ordre de 9 s) avant le premier essai visible ; la bibliothèque, elle, est remplie tout de suite par l'historique des `decouverte`.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `52 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `872 passed` en environ 70 s (854 avant, 18 nouveaux : 16 dans `test_live.py`, 2 pour le crochet) |
+| Mutations (copie hors du projet) | `live.py` 26 erreurs volontaires, 26 détectées après correction ; crochet d'`Evolution` 5, 5 détectées |
+
+Trous de **mes tests**, trouvés par les mutations et comblés : (1) mes essais (graine 0) ne contenaient aucun *record*, donc « record annoncé comme nouveauté » et « records ignorés » passaient ; trouvé la graine 5 (un NOT d'abord trouvé avec
+plus de NAND, puis réduit) et ajouté un test qui exige un `record` après sa `nouveaute`, moins cher ; (2) la graine n'était jamais vérifiée (tout tournait avec 0) ; (3) la commande ne vérifiait pas qu'elle libère le port ni qu'elle arrête ses
+fils en sortant ; (4) l'enfant « nettoyé » transmis à la place de l'enfant essayé : le contrat est maintenant figé par un test.
+
+### Étape 6 faite : test de la phase 5 côté Python (`tests/test_phase5.py`)
+
+Avec la vraie IA, le vrai serveur, le vrai fil de présentation et un faux Unity (client TCP), trois tests :
+
+1. **Unity ne change jamais ce que fait l'IA, et ne la ralentit pas.** 60 générations (50 essais chacune), même graine, dans cinq conditions : l'IA nue (référence : ni directeur, ni crochet, ni réseau), l'affichage sans réseau, sans client,
+   avec un client connecté qui **ne lit jamais**, avec un client qui lit. Les rapports de génération sont identiques dans les cinq, et chaque condition tient dans 1,5 fois le temps de l'IA nue plus 0,3 s.
+2. **Un Unity en retard ne manque rien** : lancé après l'IA, il reçoit toutes les découvertes, chacune une fois, dans l'ordre, et les dernières stats.
+3. **Unity peut partir et revenir pendant que l'IA continue** (IA dans un fil) : le Unity qui revient reçoit l'historique (NOT en premier) puis le direct, avec des générations plus avancées ; l'IA ne s'arrête pas.
+
+**Débits mesurés sur cette machine** (meilleur de 4 répétitions, 60 générations) :
+
+| Condition | Temps | Générations par seconde | Rapport à l'IA nue |
+| --- | --- | --- | --- |
+| IA nue (référence) | 0,762 s | 78,7 | 1,00 |
+| Affichage sans réseau | 0,743 s | 80,7 | 0,98 |
+| Serveur, aucun client | 0,729 s | 82,3 | 0,96 |
+| Client connecté qui ne lit **jamais** | 0,772 s | 77,7 | 1,01 |
+| Client qui lit | 0,776 s | 77,3 | 1,02 |
+
+Les écarts (de -4 % à +2 %) sont du bruit de mesure : **l'affichage, même avec un Unity qui ne lit rien, ne coûte rien de mesurable à l'entraînement** (environ 4 000 essais par seconde). La marge du test (1,5 fois + 0,3 s) est large pour éviter
+les faux échecs ; le test est stable (5 exécutions de suite, environ 11 s chacune). Le fait de comparer à l'IA nue (et non à l'affichage sans réseau) a été ajouté après réflexion : sinon un ralentissement présent dans toutes les conditions passait inaperçu.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `875 passed` en environ 80 s (872 avant, 3 nouveaux) |
+| Erreurs volontaires pour ce test | une pause de 20 ms dans `update_stats` (appelé par l'entraînement) : détectée ; l'affichage qui glisse un NAND dans la bibliothèque (il change l'IA) : détectée |
+
+Deux de mes erreurs volontaires étaient mal conçues et ont été refaites : réenregistrer un circuit déjà accepté ne change rien dans la bibliothèque, et glisser un NOT non plus (le NOT est déjà trouvé avant le premier essai montré). Une vraie interférence demandait un circuit que l'IA n'a
+pas encore (un NAND à 2 entrées). Une 3e, « préparer un essai à chaque essai accepté », survit à ce test (le coût reste sous 50 %), mais elle est détectée par `test_display_work_is_done_only_when_the_director_asks` (étape 5).
+
+### Bilan de la partie Python de la phase 5
+
+Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
+Téo le vérifie sur son Mac avec `tools/run_unity_tests.sh EditMode` puis `PlayMode`. La phase 5 ne sera jugée terminée qu'après la vérification visuelle dans Unity.
+
+### Ce qui reste
+
+Étapes 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+
+---
+
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), terminée
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -177,53 +354,81 @@ alors qu'il n'y a plus rien à trouver : le cahier a un seul critère, je ne l'a
 Les tests de critère utilisent une évolution « scénarisée » (sous-classe de `Evolution` dont `step()` rend des rapports écrits d'avance) pour contrôler exactement quelles générations apportent
 une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolution (NOT puis montée aux paliers 2 et 3 avec N = 10, et reproductibilité).
 
-### Étape 6 EN COURS : poids des mutations, test de la phase pas encore écrit
+### Étape 6 faite : test de la phase 4 (`tests/test_phase4.py`), poids des mutations, 100 circuits récents
 
-**État du dépôt (mis à jour au commit du test de la phase) : la suite est verte** (hors mutations et journal définitif, encore à faire). Le test qui échouait juste après le
-changement des poids (`test_records_are_discoveries_but_not_novelties`) a reçu une nouvelle graine (4 -> 3, seul changement, assertion identique), avec l'accord de Téo (« tu peux continuer »
-après ma proposition) : avec les poids, la graine 4 ne produit plus de record, les graines 3 et 6 en produisent.
+**Décisions de Téo (10 octobre 2026)** :
 
-Décisions de Téo (réponses du 10 octobre 2026) :
+- Critère « approche les tailles minimales » = **cahier à la lettre** : NOT en premier au palier 1 (1 NAND) ; au palier 2, les 8 découvertes à 2 entrées toutes trouvées ;
+  AND = 2, OR = 3 et XOR = 4 NAND **exactement** ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR) à **1 NAND de leur minimum au plus**.
+- Poids des mutations : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, paramètre `weights` de `mutate`, poids invalides refusés) ;
+  `DEFAULT_RECENT_SIZE` de 20 à **100**.
 
-- **Critère « approche les tailles minimales » = cahier à la lettre** : les 8 portes trouvées ; AND = 2, OR = 3, XOR = 4 NAND exactement ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR)
-  à 1 NAND de leur minimum au plus.
-- **Poids des mutations + 100 circuits récents** : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, option `weights` de `mutate`) ;
-  `DEFAULT_RECENT_SIZE` passe de 20 à 100.
+**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND à 2 entrées ; le test de la phase les recalcule lui-même, rien n'est recopié de mémoire) :
+NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier.
 
-**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND avec 2 entrées, script jetable, pas de valeur prise de mémoire) :
-NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier (AND 2, OR 3, XOR 4).
-
-**Essais chiffrés (8 graines par ligne, 3000 générations au palier 2 après NOT, 4 réglages comparés ; scripts jetables)** :
+**Pourquoi les poids** : avec l'ancien tirage (tout à égalité), le blocage était la *découverte* de NOR, XOR et XNOR (les portes trouvées l'étaient presque toujours à leur taille minimale).
+Essais (8 graines par ligne, 3000 générations au palier 2 après NOT, scripts jetables) :
 
 | Réglage | Les 8 portes trouvées | Les 8 à leur taille minimale |
 | --- | --- | --- |
-| Ancien (tout à égalité, 20 récents) | 2 graines sur 8 | 1 sur 8 |
+| Ancien (tout à égalité, 20 récents) | 2 sur 8 | 1 sur 8 |
 | 100 récents seulement | 4 sur 8 | 3 sur 8 |
 | **Favoriser les ajouts + 100 récents (retenu)** | **7 sur 8** | **5 sur 8** |
 | Favoriser les ajouts, 20 récents | 7 sur 8 | 3 sur 8 |
 | 300 récents, tout à égalité | 3 sur 8 | 0 sur 8 |
 
-Avec l'ancien algorithme, les portes trouvées l'étaient presque toujours à leur taille minimale : le blocage était la **découverte** de NOR, XOR et XNOR. Avec les poids, la découverte
-n'est plus le blocage ; ce sont les dernières réductions de taille (un XOR resté à 5 NAND, par exemple).
+**Fiabilité réelle de l'IA (à ne pas surestimer)** : avec les réglages finaux et le critère ci-dessus (flux du test : palier 1 jusqu'à NOT, puis palier 2) :
 
-**Résultat de la recherche de graines (réglages réels, flux du test : palier 1 jusqu'à NOT, puis palier 2, 16 graines, 2500 générations) : 4 graines sur 16 réussissent le critère
-« cahier à la lettre »** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210). Dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND**
-au lieu de 4 : réduire un circuit déjà trouvé est l'étape qui bloque. Le test de la phase (`tests/test_phase4.py`) utilise les graines 1, 12 et 11 : il prouve que l'IA *peut* le faire de façon
-reproductible, pas qu'elle le fait à coup sûr. Cet écart avec mon essai précédent (5 graines sur 8 à « tout au minimum » en 3000 générations) n'est pas expliqué ; les deux échantillons sont petits
-et les déroulements diffèrent, donc je ne les additionne pas.
+- **4 graines sur 16 réussissent en 2500 générations** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210) ;
+- **6 graines sur 12 réussissent en 4000 générations** (3 sur 12 à 2500 : plus de temps aide) ;
+- dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND** au lieu de 4 : l'étape qui bloque est la *réduction* d'un circuit déjà trouvé.
 
-À faire : essai sur le nombre de mutations par enfant (en cours) ; mutations ; 4 contrôles ; journal définitif.
+Le test de la phase utilise les graines 1, 12 et 11 (fixes, reproductibles) plus un parcours complet avec `Curriculum` (N = 400, graine 1). Il prouve que l'IA **peut** y arriver, de façon reproductible,
+pas qu'elle y arrive à coup sûr. Contrôle négatif fait : avec la graine 0, le critère n'est pas atteint (XOR à 6), donc le test échouerait pour cette graine.
+Mon premier essai (5 graines sur 8 à « tout au minimum » en 3000 générations) était plus optimiste ; les échantillons sont petits et les déroulements diffèrent, je ne les additionne pas.
+
+**Essai sur le nombre de mutations par enfant** (12 graines, 4000 générations, critère ci-dessus) : actuel (1 à 12, uniforme) 6 sur 12 ; petits nombres favorisés (plus petit de 2 tirages) 7 sur 12 ;
+1 à 6 mutations 3 sur 12. Écart dans le bruit, **aucun changement retenu**.
+
+**Test modifié, avec l'accord de Téo** : `test_records_are_discoveries_but_not_novelties` : seul le numéro de graine change (4 -> 3), l'assertion est identique. Avec les poids, la graine 4 ne produit plus de
+record dans les 20 premières générations du palier 2 ; les graines 3 et 6 en produisent.
+
+**Mutations (copie hors du projet)** : `mutations.py` 29 erreurs volontaires (dont 7 sur les poids), 28 détectées, 1 équivalente (celle de l'étape 2) ; `evolution.py` 25 erreurs, 24 détectées au départ.
+La survivante (« le nombre de mutations vaut toujours le maximum ») était détectée avant le changement d'algorithme : un trou de **mes tests**, révélé par ce changement. Test ajouté
+(`test_mutation_count_covers_min_to_max_inclusive`, qui compte les mutations réellement appliquées) : les 4 erreurs sur ce tirage sont maintenant détectées.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `40 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 18 source files` |
+| `pytest` | `701 passed` en environ 58 s (689 avant, 12 nouveaux dont 5 pour le test de la phase) |
+
+Incident : une commande de ma part a été bloquée par une vérification de sécurité (un `rm -rf` sur un chemin construit avec des variables shell). Rien n'a été supprimé ni exécuté ; relancée avec la
+forme sûre `"${VAR:?}"`.
 
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
 L'état de départ était le même que dans le journal (439 tests). Python 3.11 : toujours pas vérifié par exécution.
 
-### Ce qui reste (phase 4)
+### Bilan de la phase 4 et ce qui reste
 
-Étape 6 (test de la phase : NOT, puis les 8 découvertes à 2 entrées, tailles minimales). Pas commencée.
-Toujours ouverts : interprétation de la CLK (phase 6), réglages de départ à valider (poids de la récompense, 50 enfants / 1 à 12 mutations / 20 récents, N = 400).
-Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
+**Phase 4 terminée sur le plan du code et des tests** (étapes 1 à 6 faites, 701 tests, 4 contrôles verts). Réserve à retenir : la fiabilité de l'IA sur le critère strict est d'environ 25 à 50 % selon le budget
+(voir ci-dessus) ; le XOR à 4 NAND est le point dur. Pistes si besoin plus tard : mieux réduire les circuits déjà trouvés, budget de générations plus grand.
+
+Phase 5 (liaison en direct, socket Python vers Unity) : **non commencée**, à lancer sur demande de Téo.
+
+**À valider par Téo** :
+
+- les valeurs de départ choisies par moi : poids de la récompense (100 / 30 / 5 / 1), 50 enfants, 1 à 12 mutations, 100 récents, N = 400 ;
+- mes interprétations : « retirer un nœud » ne retire que NAND et composants ; le bonus de réutilisation ne vaut que pour une nouveauté, par composant distinct, composants du circuit gardé ;
+- le fait que le test de la phase 4 s'appuie sur des graines qui réussissent (et que la suite dure maintenant environ 1 minute) ;
+- sa vérification visuelle dans Unity (phase 3).
+
+**Toujours ouverts** : interprétation de la CLK (phase 6, Téo a noté dans le cahier « CLK = horloge donc un petit composant qui peut faire une horloge »).
+**À faire côté cahier** : reporter dans le document en ligne les modifications 1 à 9 (voir `docs/modifications_cahier_proposees.md`), sinon une ré-exportation les efface. La copie locale n'a pas reçu les
+points 7 à 9 (taille maximale d'un circuit, valeur de N, palier 3 = 68 découvertes) : proposés seulement.
 
 ---
 

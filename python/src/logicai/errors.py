@@ -115,3 +115,23 @@ class InvalidEvolutionSettingsError(Exception):
 
 class InvalidStageSettingsError(Exception):
     """Les réglages demandés pour les paliers ne sont pas valides."""
+
+
+class ProtocolError(Exception):
+    """Base des refus liés aux messages échangés avec Unity."""
+
+
+class InvalidMessageError(ProtocolError):
+    """Un message n'a pas la forme prévue (type inconnu, JSON invalide...)."""
+
+
+class InvalidPlacementError(ProtocolError):
+    """Un ordre de pose est incohérent (action inconnue, câble avant son nœud...)."""
+
+
+class LiveServerError(ProtocolError):
+    """Le serveur de la liaison avec Unity ne peut pas démarrer ou est mal utilisé."""
+
+
+class InvalidDirectorSettingsError(ProtocolError):
+    """Les réglages du directeur de l'affichage en direct ne sont pas valides."""

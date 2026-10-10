@@ -4,6 +4,7 @@ import random
 
 import pytest
 
+import logicai.evolution as evolution_module
 from logicai.circuit import Circuit
 from logicai.cleanup import remove_useless_nodes
 from logicai.errors import InvalidEvolutionSettingsError
@@ -11,8 +12,8 @@ from logicai.evolution import Evolution, EvolutionSettings, GenerationReport
 from logicai.filters import find_rejections
 from logicai.flatten import flatten
 from logicai.library import Library
-from logicai.mutations import MutationRules
-from logicai.reward import RewardTracker, TrialKind
+from logicai.mutations import MutationResult, MutationRules
+from logicai.reward import RewardTracker, TrialKind, TrialResult
 
 # Réglages des paliers 1 et 2 : une seule sortie, pas de boucle (décisions Q4 et Q5).
 LEVEL_1 = MutationRules(max_inputs=1, max_outputs=1)
@@ -161,6 +162,33 @@ def test_child_gets_at_least_one_change_and_at_most_max_mutations() -> None:
         assert len(child.nodes()) + len(child.wires()) <= 2 + 4
 
 
+def test_mutation_count_covers_min_to_max_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle : un enfant reçoit un nombre de mutations tiré entre ``min_mutations`` et
+    # ``max_mutations``, bornes comprises (ni toujours le minimum, ni le maximum).
+    calls = {"count": 0}
+    real_mutate = evolution_module.mutate
+
+    def counting_mutate(
+        circuit: Circuit, rng: random.Random, rules: MutationRules, library: Library
+    ) -> MutationResult:
+        calls["count"] += 1
+        return real_mutate(circuit, rng, rules, library)
+
+    monkeypatch.setattr(evolution_module, "mutate", counting_mutate)
+    settings = EvolutionSettings(
+        children_per_generation=1, min_mutations=2, max_mutations=5
+    )
+    evolution = Evolution(Library(), LEVEL_1, settings, seed=0)
+    seen = set()
+    for _ in range(200):
+        calls["count"] = 0
+        evolution.propose_child()
+        seen.add(calls["count"])
+    assert seen == {2, 3, 4, 5}
+
+
 def test_children_respect_the_level_rules() -> None:
     # Décisions Q4 et Q5 : au palier 1, un enfant a au plus 1 entrée et 1 sortie ; et
     # tous les circuits récents restent dans ces limites.
@@ -293,3 +321,45 @@ def test_library_stays_consistent_after_a_run() -> None:
             name,
             0.0,
         )
+
+
+# --- Le crochet « un essai vient d'être jugé » -------------------------------
+
+
+def test_on_trial_is_called_for_every_child_with_its_result() -> None:
+    # Règle : le crochet ``on_trial`` reçoit chaque enfant et son résultat, une fois par
+    # essai ; la somme des récompenses reçues est celle du rapport ; et pour une
+    # découverte, le composant est déjà dans la bibliothèque au moment de l'appel.
+    library = Library()
+    seen: list[tuple[Circuit, TrialResult]] = []
+
+    def hook(circuit: Circuit, result: TrialResult) -> None:
+        if result.kind in (TrialKind.NEW, TrialKind.RECORD):
+            assert result.name in library.names()
+        seen.append((circuit, result))
+
+    evolution = Evolution(library, LEVEL_1, SMALL, seed=0, on_trial=hook)
+    reports = [evolution.step() for _ in range(5)]
+    assert len(seen) == 5 * SMALL.children_per_generation
+    assert all(isinstance(circuit, Circuit) for circuit, _ in seen)
+    assert sum(result.reward for _, result in seen) == sum(
+        report.total_reward for report in reports
+    )
+    assert any(result.kind is TrialKind.REJECTED for _, result in seen)
+    assert any(result.kind is TrialKind.NEW for _, result in seen)
+    # L'enfant arrive tel qu'il a été essayé, nœuds inutiles compris (pas nettoyé).
+    assert any(
+        _snapshot(circuit) != _snapshot(remove_useless_nodes(circuit))
+        for circuit, _ in seen
+    )
+
+
+def test_an_error_in_on_trial_is_not_hidden() -> None:
+    # Règle : le crochet s'exécute dans la boucle d'entraînement et ses erreurs ne sont
+    # pas cachées (c'est à l'appelant de les traiter ; voir ``LiveSession``).
+    def hook(circuit: Circuit, result: TrialResult) -> None:
+        raise RuntimeError("crochet en panne")
+
+    evolution = Evolution(Library(), LEVEL_1, SMALL, seed=0, on_trial=hook)
+    with pytest.raises(RuntimeError, match="crochet en panne"):
+        evolution.step()

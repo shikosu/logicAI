@@ -71,3 +71,12 @@ Proposé : garder la case non cochée (la valeur de N n'est pas fixée) et ajout
 **Proposé :** « 218 fonctions, soit **68 découvertes** » (même raison qu'au palier 2 : les entrées échangées donnent la même signature).
 Calcul fait par un petit script indépendant du projet : 1 entrée → 1, 2 entrées → 10 fonctions et 8 découvertes, 3 entrées → 218 fonctions et 68 découvertes
 (4 entrées : 64 594 fonctions et 3 904 découvertes). Cohérent avec les nombres de signatures du journal (session 2) : 80 − 12 = 68 et 3 984 − 80 = 3 904.
+
+## 10. Section « La liaison » : forme des messages (phase 5, nouveau, pas appliqué)
+
+Le cahier dit « chaque message est une ligne de texte JSON » et liste cinq types, sans en donner la forme. Proposé d'ajouter :
+
+- Chaque message est un objet JSON sur une ligne (UTF-8), avec une clé `"message"` qui donne le type : `circuit`, `etat`, `decouverte`, `stats` (le type `action` viendra avec l'IA 2, phase 7).
+- `circuit` : `{"message":"circuit","circuit":<format d'un fichier de circuit>}`. `etat` : `{"message":"etat","etat":{"top","stable","noeuds","cables"}}` (même forme que la clé `etat` d'un fichier).
+- `decouverte` : `{"message":"decouverte","nom","genre":"nouveaute"|"record","cout","circuit","ordre_de_pose":[...]}` ; `stats` : `{"message":"stats","palier","generation","decouvertes","recompense_moyenne"}`.
+- Python écoute sur 127.0.0.1 et Unity se connecte (décision de Téo, 10 octobre 2026).
