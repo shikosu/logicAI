@@ -18,6 +18,7 @@ from logicai.circuit import Circuit, Node, NodeKind, Pin
 from logicai.layout import (
     COLUMN_SPACING,
     ROW_GAP,
+    WIRE_CLEARANCE,
     Position,
     box_height,
     compute_layout,
@@ -246,6 +247,81 @@ def test_random_circuits_are_placed_without_overlap() -> None:
         assert len(outputs_x) <= 1
         for output_x in outputs_x:
             assert all(x < output_x for x in others_x)
+
+
+def _assert_no_wire_through_a_box(circuit: Circuit) -> None:
+    """Vérifie qu'un câble qui saute une colonne ne traverse aucune boîte."""
+    layout = compute_layout(circuit)
+    nodes = {node.node_id: node for node in circuit.nodes()}
+    column = {node_id: p.x // COLUMN_SPACING for node_id, p in layout.items()}
+    for link in circuit.wires():
+        source_id, sink_id = link.source.node_id, link.sink.node_id
+        if column[sink_id] - column[source_id] < 2:
+            continue
+        pin_offset = (nodes[source_id].source_count - 1) / 2 - link.source.index
+        wire_y = layout[source_id].y + pin_offset
+        for node_id, node in nodes.items():
+            if column[source_id] < column[node_id] < column[sink_id]:
+                gap = abs(wire_y - layout[node_id].y)
+                assert gap >= box_height(node) / 2 + WIRE_CLEARANCE
+
+
+def test_gate_is_moved_off_the_path_of_a_wire_that_skips_its_column() -> None:
+    # Règle vérifiée : décision de la sous-étape 4 (un câble qui saute une colonne ne
+    # doit pas disparaître derrière une boîte). Bascule SR : Q (colonne 1, y = 0)
+    # alimente la sortie S1 (colonne 3) : Q̄ (colonne 2) ne doit pas être à y = 0, sinon
+    # le câble de Q la traverse et se confond avec celui de Q̄.
+    layout = compute_layout(sr_latch())
+    assert layout[2] == Position(2, 0)  # Q
+    assert layout[3] == Position(4, -2)  # Q̄, descendue de la hauteur du câble de Q
+    assert (layout[4], layout[5]) == (Position(6, 2), Position(6, -2))  # sorties
+    _assert_no_wire_through_a_box(sr_latch())
+
+
+def test_wire_from_an_input_clears_the_gate_in_the_middle_column() -> None:
+    # Règle vérifiée : décision de la sous-étape 4. A alimente un NOT (colonne 1) et la
+    # NAND suivante (colonne 2) : le câble direct A > NAND, à la hauteur de A, ne doit
+    # pas traverser le NOT.
+    circuit = Circuit()
+    a = circuit.add_node(NodeKind.INPUT)
+    not_a = add_not(circuit, a)
+    nand_id = circuit.add_node(NodeKind.NAND)
+    wire(circuit, not_a, nand_id, 0)
+    wire(circuit, a, nand_id, 1)
+    wire(circuit, nand_id, circuit.add_node(NodeKind.OUTPUT))
+    layout = compute_layout(circuit)
+    assert layout[not_a].y != layout[a].y
+    _assert_no_wire_through_a_box(circuit)
+
+
+def test_wire_from_a_component_pin_is_avoided_at_the_height_of_that_pin() -> None:
+    # Règle vérifiée : décision de la sous-étape 4 : la hauteur d'un câble est celle de
+    # sa broche, pas du centre du composant. Un composant à 2 sorties a une broche à
+    # +0,5 et une à -0,5. Le câble long part de la broche du haut (+0,5) : la porte
+    # intermédiaire, qui serait à y = 0, descend à y = -1 (|0,5 - (-1)| = 1,5 : tout
+    # juste libre). Si le câble était pris à la hauteur du centre (0), elle descendrait
+    # jusqu'à y = -2.
+    circuit = Circuit()
+    a = circuit.add_node(NodeKind.INPUT)
+    component = circuit.add_component_node("DEUX", 1, 2)
+    wire(circuit, a, component)
+    nand_id = circuit.add_node(NodeKind.NAND)
+    circuit.connect(Pin(component, 1), Pin(nand_id, 0))
+    circuit.connect(Pin(component, 1), Pin(nand_id, 1))
+    wire(circuit, nand_id, circuit.add_node(NodeKind.OUTPUT))
+    circuit.connect(Pin(component, 0), Pin(circuit.add_node(NodeKind.OUTPUT), 0))
+    _assert_no_wire_through_a_box(circuit)
+    layout = compute_layout(circuit)
+    assert layout[component] == Position(2, 0)
+    assert layout[nand_id] == Position(4, -1)
+
+
+def test_random_circuits_have_no_wire_through_a_box() -> None:
+    # Règle vérifiée : décision de la sous-étape 4, sur 300 circuits au hasard (graine
+    # fixe, boucles comprises).
+    rng = random.Random(SEED + 7)
+    for _ in range(300):
+        _assert_no_wire_through_a_box(_random_circuit(rng))
 
 
 def test_layout_is_deterministic() -> None:

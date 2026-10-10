@@ -12,6 +12,10 @@ et (4, 0).
 - Dans une colonne, les nœuds sont empilés de haut en bas, dans l'ordre de la hauteur
   moyenne de leurs sources, pour limiter les croisements de câbles. La première entrée
   est en haut. Les ``y`` sont des entiers.
+- Un câble qui saute une colonne court à la hauteur de sa source jusqu'à la colonne
+  d'arrivée. Une boîte ne doit pas se trouver sur son passage : sinon le câble
+  disparaîtrait derrière elle et on ne saurait plus où il va. Quand une boîte tomberait
+  sur un tel câble, elle est descendue jusqu'à la première hauteur libre.
 - Une boîte fait ``max(2, broches)`` unités de haut, arrondi au pair supérieur, avec une
   unité entre deux broches : Unity utilise la même règle pour la dessiner.
 
@@ -30,6 +34,13 @@ COLUMN_SPACING = 2
 # Hauteur minimale d'une boîte, et espace vertical entre deux boîtes d'une colonne.
 MIN_BOX_HEIGHT = 2
 ROW_GAP = 2
+
+# Distance minimale, en unités du fichier, entre un câble qui passe et le bord d'une
+# boîte.
+WIRE_CLEARANCE = 0.5
+
+# Un câble « saute une colonne » quand sa cible est au moins 2 colonnes après sa source.
+_MIN_LAYER_JUMP = 2
 
 # Couche des nœuds sans prédécesseur qui ne sont pas des entrées (une NAND sans câble
 # entrant, par exemple) : juste à droite des entrées.
@@ -62,7 +73,7 @@ def compute_layout(circuit: Circuit) -> dict[int, Position]:
         for node_id, targets in successors.items()
     }
     layers = _layers(circuit, dag_successors)
-    positions = _place(circuit, layers, dag_successors)
+    positions = _place(circuit, layers, dag_successors, _long_wires(circuit, layers))
     return {node.node_id: positions[node.node_id] for node in circuit.nodes()}
 
 
@@ -146,8 +157,39 @@ def _layers(circuit: Circuit, dag_successors: dict[int, list[int]]) -> dict[int,
 # --- Lignes -----------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _LongWire:
+    """Un câble qui saute au moins une colonne entre sa source et sa cible."""
+
+    source_id: int
+    source_index: int
+    first_layer: int
+    last_layer: int
+
+
+def _long_wires(circuit: Circuit, layers: dict[int, int]) -> list[_LongWire]:
+    """Renvoie les câbles dont la cible est au moins deux colonnes après la source.
+
+    Que le câble soit un « retour » pour le parcours ou non ne compte pas ici : Unity le
+    trace vers l'avant dès que la cible est à droite de la source.
+    """
+    return [
+        _LongWire(
+            wire.source.node_id,
+            wire.source.index,
+            layers[wire.source.node_id],
+            layers[wire.sink.node_id],
+        )
+        for wire in circuit.wires()
+        if layers[wire.sink.node_id] - layers[wire.source.node_id] >= _MIN_LAYER_JUMP
+    ]
+
+
 def _place(
-    circuit: Circuit, layers: dict[int, int], dag_successors: dict[int, list[int]]
+    circuit: Circuit,
+    layers: dict[int, int],
+    dag_successors: dict[int, list[int]],
+    long_wires: list[_LongWire],
 ) -> dict[int, Position]:
     """Donne x et y à chaque nœud, colonne par colonne, de gauche à droite."""
     predecessors: dict[int, list[int]] = {n.node_id: [] for n in circuit.nodes()}
@@ -158,9 +200,17 @@ def _place(
     columns: dict[int, list[Node]] = {}
     for node in circuit.nodes():
         columns.setdefault(layers[node.node_id], []).append(node)
+    nodes_by_id = {node.node_id: node for node in circuit.nodes()}
+    starting_here: dict[int, list[_LongWire]] = {}
+    for wire in long_wires:
+        starting_here.setdefault(wire.first_layer, []).append(wire)
 
     positions: dict[int, Position] = {}
+    passing: list[
+        tuple[float, int, int]
+    ] = []  # (hauteur, colonne de départ, colonne d'arrivée)
     for layer in sorted(columns):
+        blocked = [y for y, first, last in passing if first < layer < last]
         ordered = sorted(
             columns[layer],
             key=lambda n: (
@@ -168,8 +218,13 @@ def _place(
                 n.node_id,
             ),
         )
-        for node, y in zip(ordered, _stack(ordered), strict=True):
+        for node, y in zip(ordered, _stack(ordered, blocked), strict=True):
             positions[node.node_id] = Position(COLUMN_SPACING * layer, y)
+        for wire in starting_here.get(layer, []):
+            source = nodes_by_id[wire.source_id]
+            pin_offset = (source.source_count - 1) / 2 - wire.source_index
+            height = positions[wire.source_id].y + pin_offset
+            passing.append((height, wire.first_layer, wire.last_layer))
     return positions
 
 
@@ -179,17 +234,26 @@ def _mean_height(node_ids: list[int], positions: dict[int, Position]) -> float:
     return sum(heights) / len(heights) if heights else 0.0
 
 
-def _stack(ordered: list[Node]) -> list[int]:
+def _stack(ordered: list[Node], blocked: list[float]) -> list[int]:
     """Empile des boîtes de haut en bas, centrées sur y = 0, et renvoie leurs centres.
 
-    Les hauteurs et l'écart sont pairs, donc tous les centres sont entiers.
+    Les hauteurs et l'écart sont pairs, donc tous les centres sont entiers. Une boîte
+    qui tomberait sur un câble qui passe (une hauteur de ``blocked``) est descendue,
+    d'une unité à la fois, jusqu'à la première place libre ; les suivantes suivent.
     """
     heights = [box_height(node) for node in ordered]
     total = sum(heights) + ROW_GAP * (len(heights) - 1)
-    top = total // 2
+    free_top = total // 2
     centers: list[int] = []
-    used = 0
     for height in heights:
-        centers.append(top - used - height // 2)
-        used += height + ROW_GAP
+        center = free_top - height // 2
+        while _touches_a_wire(center, height, blocked):
+            center -= 1
+        centers.append(center)
+        free_top = center - height // 2 - ROW_GAP
     return centers
+
+
+def _touches_a_wire(center: int, height: int, blocked: list[float]) -> bool:
+    """Dit si un câble qui passe est trop près d'une boîte (ou la traverse)."""
+    return any(abs(y - center) < height / 2 + WIRE_CLEARANCE for y in blocked)

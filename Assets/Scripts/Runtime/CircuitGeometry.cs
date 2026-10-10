@@ -18,9 +18,14 @@ namespace LogicAI
         // du fichier de haut, arrondi au pair, avec 1 unité entre deux broches.
         const int MinBoxHeight = 2;
 
+        // Un câble qui va vers l'avant monte ou descend juste avant la broche d'arrivée, dans
+        // l'espace libre entre deux colonnes (jamais au milieu : il traverserait la porte
+        // d'une colonne intermédiaire). Chaque numéro de broche décale ce tronçon un peu plus
+        // à gauche, pour que les câbles d'une même porte ne se confondent pas.
         // Un câble qui revient en arrière sort d'abord un peu à droite, puis passe par un
         // couloir au-dessus des deux broches.
-        const float WireMargin = 0.3f;
+        public const float WireMargin = 0.3f;
+        public const float SinkStagger = 0.12f;
         const float ChannelOffset = 0.9f;
 
         public static int SinkCount(NodeData node)
@@ -81,9 +86,9 @@ namespace LogicAI
             return new Vector2(center.x + xOffset, y);
         }
 
-        // Le tracé d'un câble, de la broche source à la broche puits : des segments
-        // horizontaux et verticaux seulement.
-        public static Vector2[] Route(Vector2 start, Vector2 end)
+        // Le tracé d'un câble, de la broche source à la broche puits (« sinkIndex » est le
+        // numéro de cette broche) : des segments horizontaux et verticaux seulement.
+        public static Vector2[] Route(Vector2 start, Vector2 end, int sinkIndex)
         {
             bool goesForward = end.x - start.x >= 2f * WireMargin;
             if (goesForward)
@@ -92,8 +97,8 @@ namespace LogicAI
                 {
                     return new[] { start, end };
                 }
-                float middle = (start.x + end.x) / 2f;
-                return new[] { start, new Vector2(middle, start.y), new Vector2(middle, end.y), end };
+                float step = Mathf.Max(start.x + WireMargin, end.x - WireMargin - SinkStagger * sinkIndex);
+                return new[] { start, new Vector2(step, start.y), new Vector2(step, end.y), end };
             }
             float channel = Mathf.Max(start.y, end.y) + ChannelOffset;
             return new[]
@@ -127,6 +132,19 @@ namespace LogicAI
                 yMax = Mathf.Max(yMax, center.y + half.y);
             }
             return Rect.MinMaxRect(xMin - margin, yMin - margin, xMax + margin, yMax + margin);
+        }
+
+        // Une caméra orthographique de moins de ce « rayon » serait inutilisable (zoom infini).
+        const float MinimumCameraSize = 0.5f;
+
+        // Calcule où placer une caméra orthographique pour voir tout le rectangle : son centre
+        // et sa « taille » (la moitié de la hauteur visible). « aspect » = largeur / hauteur.
+        public static void FitCamera(Rect bounds, float aspect, out Vector2 center, out float orthographicSize)
+        {
+            center = bounds.center;
+            float forHeight = bounds.height / 2f;
+            float forWidth = bounds.width / 2f / aspect;
+            orthographicSize = Mathf.Max(Mathf.Max(forHeight, forWidth), MinimumCameraSize);
         }
     }
 }

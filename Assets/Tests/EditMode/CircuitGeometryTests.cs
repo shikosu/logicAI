@@ -113,19 +113,65 @@ namespace LogicAI.Tests
         [Test]
         public void Route_ForwardOnTheSameHeight_IsAStraightLine()
         {
-            Vector2[] route = CircuitGeometry.Route(new Vector2(1f, 0f), new Vector2(3f, 0f));
+            Vector2[] route = CircuitGeometry.Route(new Vector2(1f, 0f), new Vector2(3f, 0f), 0);
             Assert.AreEqual(2, route.Length);
         }
 
         [Test]
-        public void Route_ForwardWithAHeightDifference_HasAVerticalStepInTheMiddle()
+        public void Route_ForwardWithAHeightDifference_ClimbsJustBeforeTheSinkPin()
         {
-            Vector2[] route = CircuitGeometry.Route(new Vector2(1f, 0f), new Vector2(3f, 1f));
+            // Règle vérifiée : décision de la sous-étape 4 (le tronçon vertical se place juste
+            // avant la broche d'arrivée, dans l'espace libre entre deux colonnes).
+            Vector2[] route = CircuitGeometry.Route(new Vector2(1f, 0f), new Vector2(3f, 1f), 0);
 
             Assert.AreEqual(4, route.Length);
             Assert.AreEqual(new Vector2(1f, 0f), route[0]);
             Assert.AreEqual(new Vector2(3f, 1f), route[3]);
-            Assert.AreEqual(2f, route[1].x, 1e-5f);
+            Assert.AreEqual(3f - CircuitGeometry.WireMargin, route[1].x, 1e-5f);
+            Assert.AreEqual(route[1].x, route[2].x, 1e-5f);
+            AssertOrthogonal(route);
+        }
+
+        [Test]
+        public void Route_ForAWireThatSkipsAColumn_ClimbsInTheGapNotThroughTheMiddleColumn()
+        {
+            // Règle vérifiée : décision de la sous-étape 4. Bascule SR : B (x = 0) vers la 2e
+            // porte (colonne 2) saute la colonne 1, dont les boîtes sont centrées sur x = 2,4 :
+            // le tronçon vertical ne doit pas passer à ce milieu (il traverserait la 1re porte).
+            Vector2 start = new Vector2(0.5f, -1f);
+            Vector2 end = new Vector2(4.3f, 0.25f);
+
+            Vector2[] route = CircuitGeometry.Route(start, end, 0);
+
+            float columnOneCenter = 2f * CircuitGeometry.XScale;
+            float boxLeft = columnOneCenter - CircuitGeometry.BoxWidth / 2f;
+            float boxRight = columnOneCenter + CircuitGeometry.BoxWidth / 2f;
+            Assert.IsTrue(route[1].x < boxLeft || route[1].x > boxRight, "tronçon vertical à x = " + route[1].x);
+            Assert.AreEqual(end.x - CircuitGeometry.WireMargin, route[1].x, 1e-5f);
+        }
+
+        [Test]
+        public void Route_EachSinkPinMovesTheVerticalSegmentFurtherLeft()
+        {
+            // Règle vérifiée : décision de la sous-étape 4 (les câbles d'une même porte ne se
+            // confondent pas).
+            Vector2 start = new Vector2(0f, 0f);
+            float x0 = CircuitGeometry.Route(start, new Vector2(4f, 1f), 0)[1].x;
+            float x1 = CircuitGeometry.Route(start, new Vector2(4f, 1f), 1)[1].x;
+            float x2 = CircuitGeometry.Route(start, new Vector2(4f, 1f), 2)[1].x;
+
+            Assert.AreEqual(CircuitGeometry.SinkStagger, x0 - x1, 1e-5f);
+            Assert.AreEqual(CircuitGeometry.SinkStagger, x1 - x2, 1e-5f);
+        }
+
+        [Test]
+        public void Route_WithManySinkPins_NeverClimbsBeforeItsOwnStart()
+        {
+            // Règle vérifiée : décision de la sous-étape 4 : même avec beaucoup de broches,
+            // le tronçon vertical reste à droite de la broche de départ.
+            Vector2 start = new Vector2(0f, 0f);
+            Vector2[] route = CircuitGeometry.Route(start, new Vector2(1.4f, 1f), 30);
+            Assert.GreaterOrEqual(route[1].x, start.x);
             AssertOrthogonal(route);
         }
 
@@ -137,7 +183,7 @@ namespace LogicAI.Tests
             Vector2 start = new Vector2(3f, 0f);
             Vector2 end = new Vector2(1f, 0.5f);
 
-            Vector2[] route = CircuitGeometry.Route(start, end);
+            Vector2[] route = CircuitGeometry.Route(start, end, 0);
 
             Assert.AreEqual(6, route.Length);
             Assert.AreEqual(start, route[0]);
@@ -155,7 +201,7 @@ namespace LogicAI.Tests
             Vector2 source = CircuitGeometry.SourcePin(nand, 0);
             Vector2 sink = CircuitGeometry.SinkPin(nand, 1);
 
-            Vector2[] route = CircuitGeometry.Route(source, sink);
+            Vector2[] route = CircuitGeometry.Route(source, sink, 1);
 
             Assert.AreEqual(source, route[0]);
             Assert.AreEqual(sink, route[route.Length - 1]);
@@ -179,7 +225,7 @@ namespace LogicAI.Tests
                         {
                             var start = new Vector2(sx, sy);
                             var end = new Vector2(tx, ty);
-                            Vector2[] route = CircuitGeometry.Route(start, end);
+                            Vector2[] route = CircuitGeometry.Route(start, end, (int)(sy * 4f + 4f) % 3);
                             Assert.AreEqual(start, route[0]);
                             Assert.AreEqual(end, route[route.Length - 1]);
                             AssertOrthogonal(route);
@@ -212,6 +258,37 @@ namespace LogicAI.Tests
                 Assert.LessOrEqual(bounds.yMin, center.y - half.y - 1f + 1e-4f);
                 Assert.GreaterOrEqual(bounds.yMax, center.y + half.y + 1f - 1e-4f);
             }
+        }
+
+        [Test]
+        public void FitCamera_OnAWideRectangle_IsLimitedByTheWidth()
+        {
+            // Règle vérifiée : décision du plan (la caméra est cadrée sur tout le circuit).
+            var bounds = new Rect(0f, 0f, 20f, 2f);
+            Vector2 center;
+            float size;
+            CircuitGeometry.FitCamera(bounds, 2f, out center, out size);
+            Assert.AreEqual(new Vector2(10f, 1f), center);
+            Assert.AreEqual(5f, size, 1e-5f);   // 20 de large / (2 x aspect 2)
+        }
+
+        [Test]
+        public void FitCamera_OnATallRectangle_IsLimitedByTheHeight()
+        {
+            var bounds = new Rect(0f, 0f, 2f, 20f);
+            Vector2 center;
+            float size;
+            CircuitGeometry.FitCamera(bounds, 2f, out center, out size);
+            Assert.AreEqual(10f, size, 1e-5f);   // la moitié de la hauteur
+        }
+
+        [Test]
+        public void FitCamera_NeverZoomsInfinitely()
+        {
+            Vector2 center;
+            float size;
+            CircuitGeometry.FitCamera(new Rect(0f, 0f, 0f, 0f), 1.5f, out center, out size);
+            Assert.Greater(size, 0f);
         }
 
         [Test]
