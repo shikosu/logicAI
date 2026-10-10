@@ -413,7 +413,10 @@ possible est de **varier** ce qu'on montre (ne pas remontrer la même fonction c
 
 ### Ce qui reste
 
-- **Téo** : relancer la même vérification visuelle (`python -m logicai.live --seed 1`, Play, « En direct ») pour juger si les découvertes montrées en direct répondent à sa remarque. Aucune action côté Unity.
+- **Validé par Téo** (10 octobre 2026) : « on est bon », après avoir relancé la vérification visuelle avec les découvertes montrées en direct. **La phase 5 est définitivement close** (preuves : Python 896 tests,
+  Unity EditMode 178 et PlayMode 5, vérification visuelle deux fois).
+- **Cahier à mettre à jour par Téo** (le cahier est en lecture seule pour Claude) : les points 7 à 10 de `docs/modifications_cahier_proposees.md` ne sont pas encore reportés dans le document en ligne ; ils couvrent notamment les « Points à trancher »
+  déjà décidés (taille maximale d'un circuit : aucune limite fixe, seulement la pénalité ; critère de changement de palier : N réglable, 400 de départ ; palier 3) et la forme des messages de la liaison.
 - Réglages à ajuster à l'usage : `SHOWN_SIZE_FACTOR` (1,5), vitesse de rediffusion (`ReplayStepSeconds` = 0,4 s), rythme des essais (3 s / 0,5 s), largeur du panneau (240 px).
 - Options non faites, à la demande de Téo seulement : file d'attente de découvertes pendant une rafale ; variété des fonctions montrées ; légende « découverte » à l'écran (demanderait un champ de plus dans le message `circuit`).
 - Ne pas commencer la phase 6 sans son accord (elle contient la variante « défis », dont la première étape sera une mesure du gain).
