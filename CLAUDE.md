@@ -95,7 +95,12 @@ Les commandes exactes pour cette machine sont dans la section « Commandes véri
 
 ## Commandes vérifiées
 
-<!-- À remplir par Claude Code pendant la phase 0, uniquement avec des commandes réellement exécutées sur cette machine. -->
-- Activer l'environnement : (à compléter)
-- Lancer les tests : (à compléter)
-- Lint / formatage / types : (à compléter)
+Vérifiées le 10 octobre 2026 sur cette machine (macOS, zsh, Python 3.14.7 de Homebrew), depuis la racine du projet.
+
+- Activer l'environnement : `source python/.venv/bin/activate` (puis `cd python` ; `deactivate` pour sortir).
+  Sans activer, on peut appeler les outils directement : `python/.venv/bin/pytest`, etc.
+- Lancer les tests : `cd python && pytest` (la config est dans `python/pyproject.toml`).
+- Lint / formatage / types, toujours depuis `python/` :
+  - `ruff check`
+  - `ruff format --check`
+  - `mypy` (strict, sur `src/`)
