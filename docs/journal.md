@@ -25,10 +25,14 @@ sur la machine de cette session (Linux, pas le Mac de Téo) : ces contrôles ne 
 ### Ce qui reste
 
 - **Reporter les 6 modifications dans le document en ligne** (claude.ai), sinon une ré-exportation les effacerait.
-- Le palier 3 indique toujours « 218 » fonctions : avec la décision « entrées échangées = une seule découverte », le nombre de découvertes sera plus
-  petit. Il n'a pas été calculé, donc le cahier n'a pas été modifié sur ce point (à faire calculer avant la phase 4 si Téo le souhaite).
-- Points à trancher toujours ouverts : taille maximale d'un circuit, interprétation de la CLK (Téo a noté dans le cahier : « CLK = horloge donc un
-  petit composant qui peut faire une horloge », à clarifier), poids de la récompense, critère de changement de palier.
+- Palier 3 : « 218 » fonctions restent après les filtres, soit **68 découvertes** (calcul indépendant, voir point 9 de
+  `docs/modifications_cahier_proposees.md`). Le cahier n'a pas été modifié sur ce point (proposé seulement).
+- Points à trancher : **tranchés par Téo avant la phase 4** : taille maximale d'un circuit = aucune limite fixe, seulement la pénalité de taille ;
+  critère de changement de palier = N réglable, valeur de départ trouvée par essais en phase 4 (points 7 et 8 de
+  `docs/modifications_cahier_proposees.md`, pas encore appliqués au cahier). Toujours ouverts : interprétation de la CLK
+  (Téo a noté dans le cahier : « CLK = horloge donc un petit composant qui peut faire une horloge », à clarifier avant la phase 6)
+  et poids de la récompense (par essais, phase 4).
+- **Phase 4** : un plan est proposé à Téo avant tout code (aucun fichier de code écrit).
 
 ---
 
