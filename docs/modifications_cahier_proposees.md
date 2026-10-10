@@ -104,10 +104,11 @@ au démarrage dans tous les cas ; elle exige une entrée de remise à zéro.
 ## 14. Section « La variante « défis » » (phase 6, nouveau, pas appliqué)
 
 Décisions de Téo (10 octobre 2026), après une mesure (demi-additionneur trouvé par 0 graine sur 8 sans défi, 7 sur 8 avec) : le **système** choisit la cible au hasard parmi les tables absentes de la bibliothèque et acceptées par les filtres ;
-la **proximité** (bits de table égaux à ceux de la cible, sorties dans l'ordre) sert uniquement à choisir les parents (la moitié viennent d'une archive des circuits les plus proches) ; la formule de récompense ne change pas ;
-palier 4 = 4 entrées et 3 sorties au plus (valeur de départ).
+les cibles sont **petites d'abord** : 2 entrées et 2 sorties, puis un cran de plus (une entrée, puis une sortie) à chaque défi atteint, jusqu'aux limites du palier ;
+la **proximité** (bits de table égaux à ceux de la cible, sorties dans l'ordre) sert uniquement à choisir les parents (la moitié viennent d'une archive des circuits les plus proches) ; la formule de récompense ne change pas.
 
-## 15. Section « Points à trancher » : critère de changement de palier (phase 6, constat, pas appliqué)
+## 15. Sections « Les paliers » et « Points à trancher » : durée du palier 4 (phase 6, nouveau, pas appliqué)
 
-Au palier 4, chaque paire de fonctions déjà connues est une nouveauté : la plus longue série de générations sans nouveauté mesurée est de 3 à 17. Le critère « N générations sans nouveauté » ne s'y déclenche donc jamais
-et le palier 5 est inatteignable par le parcours. À trancher (voir le journal, session 6).
+Au palier 4, chaque paire de fonctions déjà connues est une nouveauté : la plus longue série de générations sans nouveauté mesurée est de 3 à 17. Le critère « N générations sans nouveauté » ne s'y déclenche donc jamais.
+Décision de Téo (10 octobre 2026) : **le palier 4 dure un nombre fixe de générations** (2 000 au départ). Un palier est quitté à la première de deux conditions : N générations sans nouveauté, ou durée atteinte.
+Le palier 4 est de 4 entrées et 3 sorties au plus (valeur de départ ; le cahier ne dit pas « plusieurs »). Le palier 5 (« avec CLK ») reprend ces limites, avec les boucles et la CLK.

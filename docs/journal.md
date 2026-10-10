@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), code terminé ; deux critères à trancher par Téo (changement de palier 4 → 5, choix des défis)
+## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), terminée côté Python (parcours complet mesuré) ; réglages à affiner par essais
 
 ### Décisions de Téo en début de session
 
@@ -15,6 +15,8 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 | Variante « défis » (après la mesure 1 sur 8 → 7 sur 8) | **Oui, comme prototypée** : le système choisit la cible au hasard parmi les tables absentes ; la proximité ne sert qu'à choisir les parents ; la récompense ne change pas ; palier 4 = 4 entrées et 3 sorties au plus |
 | Protocole de l'horloge | **CLK à 1 au départ**, signal de plus dans les marches (un seul signal change à la fois, CLK comprise), sorties lues à chaque pas |
 | Mes interprétations (bonus mémoire sur une nouveauté seulement, 100 ; filtres jugés à chaque pas ; boucle sans mémoire = circuit combinatoire) | **OK pour toutes** |
+| Quand quitter le palier 4 (le critère « N générations sans nouveauté » ne s'y déclenche jamais) | **Nombre de générations fixe** : 2 000 au départ |
+| Les cibles de défi tirées au hasard sont presque toujours trop dures | **Petites cibles d'abord** : 2 entrées et 2 sorties, puis un cran de plus à chaque défi atteint |
 
 ### État de départ (vérifié)
 
@@ -119,7 +121,21 @@ Les cibles tirées au hasard (jusqu'à 4 entrées et 3 sorties) sont presque tou
 `STAGE_5` : mêmes limites que le palier 4 (un palier contient les précédents), boucles et CLK permises ; `STAGES_1_TO_5`. Valeurs de départ, à régler (le cahier ne donne aucun nombre d'entrées ou de sorties pour les paliers 4 et 5).
 `pytest` : `1102 passed` (+ 5).
 
-**Constat à trancher : le palier 5 est inatteignable par le parcours.** Le critère du cahier (« aucune nouveauté pendant N générations », N = 400) ne peut pas se déclencher au palier 4 : chaque paire de fonctions est une nouveauté, et la plus longue série de générations sans nouveauté mesurée au palier 4 est de **3 à 17** (8 graines, 7 000 générations, défis actifs).
+**Constat (tranché par Téo, étape 8) : le palier 5 était inatteignable par le parcours.** Le critère du cahier (« aucune nouveauté pendant N générations », N = 400) ne peut pas se déclencher au palier 4 : chaque paire de fonctions est une nouveauté, et la plus longue série de générations sans nouveauté mesurée au palier 4 est de **3 à 17** (8 graines, 7 000 générations, défis actifs).
+
+### Étape 8 faite : palier 4 de durée fixe, défis de taille progressive (`stages.py`, `challenge.py`, tests `test_stages_phase6.py`, `test_challenge.py`)
+
+- `Stage.max_generations` (facultatif, refusé si < 1) : on quitte le palier à la première de deux conditions, N générations calmes **ou** durée atteinte. `STAGE_4_GENERATIONS = 2000`. La durée se compte depuis l'arrivée dans chaque palier. Le dernier palier est gardé quelle que soit sa durée.
+- `challenge_size(niveau, max_entrées, max_sorties)` : niveau 0 = 2 entrées et 2 sorties, puis (3, 2), (3, 3), (4, 3)… sans dépasser les limites du palier. `Curriculum` fait grandir le niveau à chaque défi atteint, **et** quand toutes les cibles de la taille sont déjà connues (sans compter de défi atteint) ; à la limite du palier sans cible possible, il n'y a pas de défi et pas de boucle sans fin.
+- Erreurs volontaires (banc fiable, avec délai maximal par essai) : 13 sur 13 détectées (dont 2 boucles sans fin arrêtées au bout de 60 s). `pytest` : `1120 passed` en 71 s (1102 + 18 nouveaux).
+
+| Parcours complet paliers 1 → 5 (8 graines, N = 400, défis progressifs, palier 4 de 2 000 générations, 400 générations jouées au palier 5) | Résultat |
+|---|---|
+| Palier 4 atteint / palier 5 atteint | générations 2 984 à 5 881 / exactement 2 000 générations plus tard |
+| Défis atteints avant le palier 5 | **au moins 1 sur chacune des 8 graines** (1 pour 7 graines, 2 pour une), contre 3 graines sur 8 avec des cibles uniformes |
+| Première mémoire au palier 5 | **8 sur 8**, 1 à 29 générations après l'arrivée |
+| Première mémoire **à CLK** au palier 5 | **2 sur 8** (+69 et +157 générations) en 400 générations : bien plus dur dans une bibliothèque de 2 800 à 9 600 composants que depuis une bibliothèque vide (8 sur 8 en 48 générations) |
+| Durée d'une exécution | 185 à 365 s ; 12 à 28 composants à mémoire |
 
 ### Mesures (scripts jetables hors du dépôt, graines 0 à 7)
 
@@ -140,10 +156,12 @@ Un circuit à bascules à front n'est donc atteignable que s'il a une entrée de
 
 ### En attente de Téo
 
-1. **Quand quitter le palier 4** (constat ci-dessus ; « Critère de changement de palier » est un point du cahier à trancher) : le critère « N générations sans nouveauté » ne se déclenche jamais. Pistes, à toi de choisir : un nombre de générations fixe par palier ; « N générations sans défi atteint » (se déclenche presque toujours) ; ne pas compter comme nouveauté une paire de fonctions déjà connues (règle absente du cahier) ; permettre boucles et CLK plus tôt.
-2. **Choix des défis** : les cibles uniformes jusqu'à 4 entrées et 3 sorties sont presque toujours trop dures (3 défis atteints sur environ 40 tentés). À régler : favoriser les petites cibles (2 entrées, 2 sorties d'abord), ou la patience (300 générations), ou les deux.
-3. **Palier 4 / palier 5** : valeurs de départ (4 entrées, 3 sorties) ; la batterie coûte 15 ms pour 4 entrées et la CLK, donc l'entraînement au palier 5 est lent (de l'ordre de 6 générations par seconde).
-4. Les circuits à bascule à front montant (maître-esclave) oscillent toujours au démarrage (constat plus haut) : ils exigent une entrée de remise à zéro. Pas de question : c'est une conséquence des règles du cahier ; à savoir pour juger « bascules, registres, compteurs ».
+Rien de bloquant. À régler par essais, quand tu voudras :
+
+1. Les défis continuent au palier 5 (ils ne s'arrêtent pas, `ChallengeSettings.first_stage` n'a pas de borne haute) : la moitié des parents y vient d'une archive de circuits combinatoires proches de la cible, ce qui peut gêner la recherche de mémoires à CLK (2 graines sur 8 en 400 générations). À essayer : arrêter les défis au palier 5.
+2. Limites du palier 4 et 5 (4 entrées, 3 sorties), durée du palier 4 (2 000), patience (300), poids du bonus mémoire (100).
+3. À 4 entrées plus la CLK, la batterie coûte 15 ms par circuit : l'entraînement au palier 5 est lent (de l'ordre de 6 à 12 générations par seconde observées).
+4. Les circuits à bascule à front montant (maître-esclave) oscillent toujours au démarrage (constat plus haut) : ils exigent une entrée de remise à zéro. Ce n'est pas une question : c'est une conséquence des règles du cahier, à garder en tête pour « bascules, registres, compteurs ».
 
 ### Interprétations (validées par Téo : « OK pour toutes »)
 
@@ -151,7 +169,7 @@ Un circuit à bascules à front n'est donc atteignable que s'il a une entrée de
 - Les cinq filtres, appliqués à une batterie : définitions plus haut (surtout « entrée inutile »).
 - Un circuit à boucle **sans** mémoire détectée est jugé comme un circuit combinatoire (table de vérité).
 - Une marche instable rejette le circuit (cahier).
-- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100, `CHALLENGE_PARENT_SHARE = 0,5`, archive de 50, patience 300, palier 4 = 4 entrées / 3 sorties.
+- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100, `CHALLENGE_PARENT_SHARE = 0,5`, archive de 50, patience 300, palier 4 = 4 entrées / 3 sorties / 2 000 générations, palier 5 = mêmes limites avec boucles et CLK.
 - **Non validées** (apparues après son OK) : une CLK qui ne change aucune sortie est une « entrée inutile » ; un circuit à CLK est toujours jugé sur sa batterie même sans boucle.
 
 ### Limites connues
