@@ -1,5 +1,9 @@
 # Modifications proposées pour le cahier des charges
 
+> **État : les points 1 à 6 ci-dessous ont été appliqués à la copie locale `docs/cahier_des_charges.md` le 10 octobre 2026, à la demande de Téo.**
+> Les points 7 à 9 sont **nouveaux et pas encore appliqués** (à confirmer par Téo).
+> Il reste à reporter tout cela dans le **document en ligne** (claude.ai), sinon une ré-exportation l'effacerait.
+
 Le cahier (`docs/cahier_des_charges.md` et ton document en ligne) est en **lecture seule pour Claude** : je ne le modifie pas. Ce fichier
 liste, section par section, ce qui a changé pendant les phases 1 à 3 depuis que le cahier a été écrit. Il n'y a rien à calculer : c'est une
 liste de phrases à recopier dans ton document, ou à me demander de modifier (dans ce cas dis-le-moi clairement).
@@ -49,3 +53,21 @@ Un composant sans nom connu s'appelle C-001, C-002… La liste est une donnée f
 - Une clé facultative `etat` donne les valeurs 0/1 à un top, pour colorer les câbles :
   `"etat": {"top": 3, "stable": true, "noeuds": [0, 1, 1], "cables": [0, 0, 1]}`. Les listes suivent l'ordre de `noeuds` et de `cables` du fichier.
   C'est aussi la forme du message `etat` de la section « La liaison ».
+
+## 7. Section « Points à trancher » : taille maximale d'un circuit (nouveau, pas appliqué)
+
+Décision de Téo (10 octobre 2026, avant la phase 4) : **aucune limite fixe, seulement la pénalité de taille k · N_NAND.**
+Proposé : cocher « Taille maximale d'un circuit » et écrire « décision validée : aucune limite fixe, seulement la pénalité de taille ».
+
+## 8. Section « Points à trancher » : critère de changement de palier (nouveau, pas appliqué)
+
+Décision de Téo (10 octobre 2026) : **N est un paramètre réglable, dont la valeur de départ est trouvée par essais pendant la phase 4**, puis validée par Téo.
+Proposé : garder la case non cochée (la valeur de N n'est pas fixée) et ajouter « N : paramètre réglable, valeur trouvée par essais en phase 4 ».
+
+## 9. Section « Les paliers » : palier 3 (nouveau, pas appliqué)
+
+**Aujourd'hui :** palier 3 : « 218 » fonctions restent après les filtres.
+
+**Proposé :** « 218 fonctions, soit **68 découvertes** » (même raison qu'au palier 2 : les entrées échangées donnent la même signature).
+Calcul fait par un petit script indépendant du projet : 1 entrée → 1, 2 entrées → 10 fonctions et 8 découvertes, 3 entrées → 218 fonctions et 68 découvertes
+(4 entrées : 64 594 fonctions et 3 904 découvertes). Cohérent avec les nombres de signatures du journal (session 2) : 80 − 12 = 68 et 3 984 − 80 = 3 904.
