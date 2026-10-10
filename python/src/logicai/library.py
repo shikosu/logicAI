@@ -4,7 +4,9 @@ Chaque circuit enregistré devient un composant (cahier, « Composants et biblio
 Les étapes d'un enregistrement :
 
 1. nettoyage (on retire ce qui n'influence aucune sortie) ;
-2. calcul de la signature canonique sur le circuit aplati (voir ``signature``) ;
+2. calcul de la signature canonique sur le circuit aplati : sa table de vérité (voir
+   ``signature``), ou, pour un circuit à mémoire, sa réponse à la batterie de séquences
+   (voir ``sequential``) ;
 3. si la signature est inconnue : nouvelle découverte, le circuit devient un composant ;
 4. si elle est connue et que le circuit a moins de NAND : record, la définition du
    composant est remplacée, et tous les circuits qui l'utilisent profitent de la
@@ -39,6 +41,12 @@ from logicai.errors import (
     UnstableCircuitError,
 )
 from logicai.flatten import flat_nand_count, flatten
+from logicai.sequential import (
+    SequentialForm,
+    SequentialSignature,
+    run_battery,
+    sequential_form,
+)
 from logicai.serialization import circuit_from_json, circuit_to_json
 from logicai.signature import CanonicalForm, Signature, canonical_form, known_name
 from logicai.simulation import Status
@@ -107,7 +115,7 @@ class Component:
 
     name: str
     circuit: Circuit
-    signature: Signature
+    signature: Signature | SequentialSignature
     input_order: tuple[int, ...]
 
 
@@ -117,7 +125,7 @@ class _Candidate:
 
     circuit: Circuit
     cost: int
-    form: CanonicalForm
+    form: CanonicalForm | SequentialForm
 
 
 class Library:
@@ -128,7 +136,7 @@ class Library:
         self._limits = limits if limits is not None else LibraryLimits()
         self._components: dict[str, Component] = {}
         self._definitions: dict[str, Circuit] = {}
-        self._by_signature: dict[Signature, str] = {}
+        self._by_signature: dict[Signature | SequentialSignature, str] = {}
         self._next_number = _FIRST_NUMBER
         # Vue en lecture seule, toujours à jour : on la donne à ``flatten``.
         self._definitions_view: Mapping[str, Circuit] = MappingProxyType(
@@ -163,15 +171,29 @@ class Library:
         return self._analyze(remove_useless_nodes(circuit))
 
     def _analyze(self, circuit: Circuit) -> _Candidate:
-        """Aplatit le circuit, refuse l'instable, puis calcule coût et signature."""
+        """Aplatit le circuit, refuse l'instable, puis calcule coût et signature.
+
+        Un circuit dont la batterie de séquences révèle une mémoire a une signature
+        séquentielle ; les autres ont leur table de vérité.
+        """
         flat = flatten(circuit, self._definitions_view)
+        input_count = len(circuit.inputs())
+        battery = run_battery(flat)
+        if battery is not None and battery.status is Status.UNSTABLE:
+            raise UnstableCircuitError(
+                "Le circuit oscille pendant la batterie de séquences : il n'a pas de "
+                "signature et ne peut pas devenir un composant."
+            )
+        if battery is not None and battery.memory:
+            form: CanonicalForm | SequentialForm = sequential_form(battery, input_count)
+            return _Candidate(circuit, flat.nand_count(), form)
         table = truth_table(flat)
         if table.status is not Status.STABLE:
             raise UnstableCircuitError(
                 "Le circuit est instable (une sortie change encore après T_max + 1 "
                 "tops) : il n'a pas de signature et ne peut pas devenir un composant."
             )
-        form = canonical_form(table, len(circuit.inputs()))
+        form = canonical_form(table, input_count)
         return _Candidate(circuit, flat.nand_count(), form)
 
     def _check_size(self, circuit: Circuit) -> None:
@@ -194,7 +216,7 @@ class Library:
     def _add_new(self, candidate: _Candidate) -> Registration:
         """Ajoute un nouveau composant, avec son nom connu ou un numéro."""
         signature = candidate.form.signature
-        name = known_name(signature)
+        name = known_name(signature) if isinstance(signature, Signature) else None
         if name is None or name in self._components:
             name = self._fresh_name()
         self._components[name] = Component(
