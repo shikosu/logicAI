@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 3 faites
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 4 faites
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -104,6 +104,43 @@ la répartition des résultats est la même (uniforme parmi les possibles), seul
 
 Le mutant équivalent : enregistrer le circuit déjà nettoyé au lieu de l'original donne le même résultat, car `register` nettoie lui-même (le nettoyage est idempotent).
 
+### Étape 4 faite : boucle d'évolution (`evolution.py`, `tests/test_evolution.py`, `errors.py`)
+
+- `Evolution(library, rules, settings, reward_settings, seed)` ; `step()` fait une génération et rend un `GenerationReport` (numéro, nombre d'essais, découvertes =
+  nouveautés et records, récompense totale, `new_count` = nombre de nouveautés, records exclus : c'est ce que le changement de palier regardera).
+- Un enfant = un parent tiré au hasard + un nombre de mutations d'affilée tiré entre `min_mutations` et `max_mutations`, puis évaluation par `RewardTracker` (étape 3).
+- **Parents (décision Q1)** : le circuit vide (1 entrée, 1 sortie), la **définition de chaque composant** de la bibliothèque (c'est déjà le plus petit circuit de la signature,
+  un record la remplace), et les `recent_size` derniers circuits acceptés par les filtres, nettoyés. Les parents ne sont jamais modifiés (copies).
+- `rules` (palier) est un attribut modifiable entre deux générations : l'étape 5 s'en servira.
+- Le hasard vient d'un `random.Random(seed)` créé par l'IA : même graine, même déroulement (testé, état global de `random` sans effet).
+- Erreur dédiée : `InvalidEvolutionSettingsError`.
+
+**Valeurs de départ (à confirmer par Téo, à régler par essais)** : 50 enfants par génération, 1 à **12** mutations par enfant, 20 circuits récents.
+Choisies par un essai chiffré (script jetable, 2 à 8 graines par cas, pas un test) :
+
+| Essai | Résultat |
+| --- | --- |
+| Palier 1 : générations pour trouver NOT (8 graines, 50 enfants) | Toujours trouvé ; au plus 43 générations (max 4 mutations), au plus 19 (max 8), au plus 15 (max 12) ; moins d'une demi-seconde pour 8 graines |
+| Palier 2, 300 générations | max 6 : NOT, NAND, ORNOT, AND ; max 12 : en plus OR et ANDNOT |
+| Palier 2, 2000 générations, max 12 | selon la graine : 7 à 9 composants (une exécution a trouvé les 8 portes du palier 2 en 500 générations, d'autres n'ont pas encore NOR/XOR/XNOR) ; max 16 n'apporte rien de plus ; 100 circuits récents au lieu de 20 : résultats mélangés |
+| Vitesse | environ 10 ms par génération de 50 enfants (environ 5 000 essais par seconde) |
+
+**À retenir pour l'étape 6** : la boucle fonctionne, mais **trouver les 8 portes du palier 2 avec les tailles minimales à coup sûr n'est pas acquis**. Une exécution a trouvé XOR avec 5 NAND
+(le minimum est 4) et s'y est arrêtée ; d'autres n'ont pas trouvé NOR en 2000 générations. Il faudra régler (nombre de générations, mutations, circuits récents) et peut-être
+revoir le choix des parents. L'échantillon de l'essai est petit (2 graines pour les longues exécutions).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `37 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 17 source files` |
+| `pytest` | `677 passed` (656 avant, 21 nouveaux) |
+| Mutations (copie hors du projet) | 25 erreurs volontaires dans `evolution.py`, 25 détectées |
+
+Les mutations ont trouvé un trou dans **mes tests** (2 survivantes) : mes exécutions de test ne contenaient aucun record, donc « les records sont des découvertes » et « new_count ignore les records »
+tournaient à vide. Test remplacé par une exécution déterministe qui produit des records (graine 4, palier 2). Autre erreur de ma part, corrigée avant le commit : 4 tests supposaient
+qu'on trouve NOT en 10 générations de 20 enfants ; ils partent maintenant d'un état explicite (NOT déjà trouvé).
+
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
@@ -111,7 +148,7 @@ L'état de départ était le même que dans le journal (439 tests). Python 3.11 
 
 ### Ce qui reste (phase 4)
 
-Étapes 4 à 6 (boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
+Étapes 5 et 6 (paliers, test de la phase). Aucune n'est commencée.
 Toujours ouverts : interprétation de la CLK (phase 6), valeur de N et poids de la récompense (par essais).
 Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
 

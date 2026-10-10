@@ -107,3 +107,7 @@ class InvalidMutationRulesError(Exception):
 
 class InvalidRewardSettingsError(Exception):
     """Les réglages demandés pour la récompense ne sont pas valides."""
+
+
+class InvalidEvolutionSettingsError(Exception):
+    """Les réglages demandés pour la boucle d'évolution ne sont pas valides."""
