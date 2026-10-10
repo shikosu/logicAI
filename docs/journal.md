@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), **en cours** : CLK, mémoire et bascule faites ; palier 4 et horloge en attente de Téo
+## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), code terminé ; deux critères à trancher par Téo (changement de palier 4 → 5, choix des défis)
 
 ### Décisions de Téo en début de session
 
@@ -12,6 +12,9 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 |---|---|
 | Interprétation de la CLK (point resté ouvert du cahier) | **Nœud CLK posable** : source à 1 broche que l'IA pose et câble comme une NAND ; la simulation lui donne le signal ; tous les nœuds CLK partagent la même horloge ; ce n'est pas une broche du composant |
 | Comment tester les circuits à mémoire sans rejeter toute bascule | **Un seul changement d'entrée à la fois** : chaque séquence (« marche ») part de toutes les entrées à 0 et change une entrée par pas, 4 pas ; toute oscillation rejette le circuit (cahier intact) |
+| Variante « défis » (après la mesure 1 sur 8 → 7 sur 8) | **Oui, comme prototypée** : le système choisit la cible au hasard parmi les tables absentes ; la proximité ne sert qu'à choisir les parents ; la récompense ne change pas ; palier 4 = 4 entrées et 3 sorties au plus |
+| Protocole de l'horloge | **CLK à 1 au départ**, signal de plus dans les marches (un seul signal change à la fois, CLK comprise), sorties lues à chaque pas |
+| Mes interprétations (bonus mémoire sur une nouveauté seulement, 100 ; filtres jugés à chaque pas ; boucle sans mémoire = circuit combinatoire) | **OK pour toutes** |
 
 ### État de départ (vérifié)
 
@@ -25,12 +28,12 @@ Les `.meta` des fichiers C# de la phase 5 sont toujours non suivis (à commiter 
   l'appelant la fait changer entre deux appels, une fois le circuit stabilisé (c'est la demi-période plus longue que T_max du cahier). La CLK se lit dans une case de plus, après les vraies entrées (toutes les CLK partagent cette case).
 - **Un circuit qui a une CLK refuse de se simuler sans valeur d'horloge** (`SimulationError`) : la table de vérité, les relevés et la bibliothèque ne prennent donc jamais la CLK pour 0 en silence.
 - Une CLK dans un composant reste une CLK dans le circuit aplati ; une CLK qui n'alimente rien d'utile est retirée par le nettoyage ; JSON : type `"CLK"` ; placement : colonne 0 avec les entrées.
-- **Le protocole de l'horloge (quand elle bascule par rapport aux entrées) n'est pas fixé** : voir « En attente de Téo ».
+- Le protocole de l'horloge (quand elle bascule par rapport aux entrées) est celui de l'étape 6.
 
 | Contrôle (fin de l'étape) | Résultat |
 |---|---|
 | `pytest` | `937 passed` (914 + 23 nouveaux, aucun test existant modifié) |
-| Erreurs volontaires (copie hors du projet) | 11 sur 11 détectées |
+| Erreurs volontaires (copie hors du projet) | 11 sur 11 détectées (confirmé avec le banc corrigé) |
 
 Une erreur de **mon test** (le code était juste) : j'avais écrit 7 NAND pour la bascule D du test de nettoyage ; elle en a 5 (la NAND inutile et la CLK inutile étaient bien retirées).
 
@@ -46,7 +49,7 @@ Une erreur de **mon test** (le code était juste) : j'avais écrit 7 NAND pour l
 | Contrôle (fin de l'étape) | Résultat |
 |---|---|
 | `pytest` | `986 passed` (937 + 49 nouveaux, aucun test existant modifié) |
-| Erreurs volontaires (copie hors du projet) | 23 sur 23 détectées |
+| Erreurs volontaires (copie hors du projet) | annoncé 23 sur 23 à ce moment-là, **mais le banc était faussé** (voir « Banc d'erreurs volontaires corrigé ») ; refait : 21 sur 23, puis 23 sur 23 après deux tests ajoutés |
 
 Une erreur de prémisse dans **mes tests** (2 tests en échec, le code était juste) : j'avais supposé qu'une bascule aux **sorties échangées** est une autre découverte. C'est la **même** que la bascule aux entrées échangées (la bascule SR est symétrique : échanger S̄ et R̄ échange Q et Q̄), conformément à la décision du cahier ; j'ai gardé un test qui le documente et ajouté un vrai cas où l'ordre des sorties compte (une mémoire et une porte symétrique).
 Un trou connu comblé par anticipation (leçon de la phase 5) : avec 2 entrées, une permutation est son propre inverse ; un test à 3 entrées (rotation) distingue l'ordre de l'ordre inverse.
@@ -61,8 +64,62 @@ Un trou connu comblé par anticipation (leçon de la phase 5) : avec 2 entrées,
 | Contrôle (fin de l'étape) | Résultat |
 |---|---|
 | `pytest` | `1005 passed` en environ 37 s (986 + 19 nouveaux, aucun test existant modifié) |
-| Erreurs volontaires (copie hors du projet) | 10 sur 10 détectées |
+| Erreurs volontaires (copie hors du projet) | 10 sur 10 détectées (confirmé avec le banc corrigé) |
 | Vitesse d'entraînement (paliers 1 à 3, sans boucle) | 173 → 160 générations par seconde (environ -8 %, le test de boucle de chaque essai) |
+
+### Banc d'erreurs volontaires corrigé (mon erreur de méthode)
+
+Mon script d'erreurs volontaires lançait pytest sans `PYTHONDONTWRITEBYTECODE=1` : du bytecode périmé (`.pyc`) d'une mutation pouvait servir à la suivante et **fabriquer de fausses détections**. Je l'ai vu parce que trois survivantes apparaissaient ou disparaissaient d'une exécution à l'autre pour le même code.
+Corrigé (variable ajoutée) puis **toutes les séries refaites** : CLK 11/11, récompense 10/10, séquentiel 21/23 (puis 23/23), défis 18/21 (puis 21/21), horloge 20/21 (puis 21/21). Les annonces « 23 sur 23 » de l'étape 3 étaient donc trop optimistes ; les vrais trous de **mes tests**, comblés :
+recopie de l'entrée 1 (le test ne copiait que l'entrée 0) ; message « batterie » de la bibliothèque ; `best_closeness` n'était pas comparé au vrai maximum ; mon test « la patience repart » avait une assertion toujours vraie ; un palier 1 qui n'autorisait de toute façon aucun défi ; `compile_circuit` sans le refus des composants (**trou hérité de la phase 2** : aucun test ne vérifiait que `settle` refuse un composant).
+Les séries de la phase 5 (journal, session 5) n'ont pas été refaites ; elles viennent d'un banc de la session précédente, probablement du même type : à garder en tête.
+
+### Étape 5 faite : variante « défis » et palier 4 (`challenge.py`, `evolution.py`, `stages.py`, `library.py`, `errors.py`, `tests/test_challenge.py`, `tests/test_phase6.py`)
+
+- `challenge.py` : `Challenge(input_count, outputs)` (une table par sortie) ; `closeness` = bits de table égaux à ceux de la cible, sorties dans l'ordre, sur l'ordre d'origine des entrées (`None` si la forme est mauvaise, le circuit instable ou à CLK) ;
+  `signature` canonique (la cible est reconnue même avec ses entrées échangées) ; `choose_challenge` tire une cible (2 à 4 entrées, 1 à 3 sorties) **au hasard parmi les tables absentes de la bibliothèque et acceptées par les filtres**, avec une graine.
+- `Evolution.challenge` (facultatif) : une archive des 50 circuits les plus proches (même refusés), et **la moitié des parents** sont tirés dedans. Sans défi, **aucun tirage de plus** : le déroulement est exactement celui d'avant (tous les tests à graine fixe passent sans modification).
+  Le réglage `challenge` vide l'archive. `Evolution.library` et `best_closeness` sont publics.
+- `Curriculum(..., challenges=ChallengeSettings(seed, patience=300, first_stage=4))` : fixe un défi à l'arrivée au palier 4, le change quand il est atteint (`reached_challenges`) ou après 300 générations sans progrès de la proximité. `STAGE_4` = 4 entrées, 3 sorties ; `STAGES_1_TO_4` ; `STAGES` (1 à 3) est **inchangé**.
+- **Test de la phase, partie demi-additionneur** : après 800 générations d'échauffement à 3 entrées, le défi « demi-additionneur » (passé explicitement) est trouvé aux graines 3, 5 et 7 (générations 26, 88 et 43) ; **contrôle négatif** : sans défi, la graine 3 ne le trouve pas dans le même budget.
+
+| Mesure avec le vrai code (8 graines, échauffement 800, budget 1 500) | Résultat |
+|---|---|
+| Demi-additionneur (ordre SOMME, RETENUE) **sans** défi | **0 sur 8** |
+| Même chose **avec** le défi posé tout de suite | **7 sur 8** (générations 26 à 1 313) ; bibliothèque 76 à 1 338 composants au lieu de 1 739 à 4 203 |
+| Défi posé **après** 150 générations sans défi | 1 sur 8 : la bibliothèque s'est déjà remplie de paires inutiles ; le parcours pose donc le défi dès l'arrivée au palier |
+| Défis **choisis par le système** (parcours réel, 1 500 générations après le palier 4) | 3 graines sur 8 atteignent 1 défi, 5 aucun ; bibliothèque de 1 789 à 8 111 composants |
+
+Les cibles tirées au hasard (jusqu'à 4 entrées et 3 sorties) sont presque toujours trop dures : à régler (voir « En attente de Téo »).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1046 passed` (1005 + 41 nouveaux : 36 `test_challenge.py`, 5 `test_phase6.py` ; la suite dure environ 65 s) |
+| Erreurs volontaires (banc corrigé) | 21 sur 21 détectées, après avoir comblé 4 trous de mes tests (tailles de défi non couvertes, archive des moins proches, remise à zéro de la patience, défis dès le palier 1) |
+
+### Étape 6 faite : protocole de l'horloge, mutation « poser la CLK » (`sequential.py`, `behavior.py`, `simulation.py`, `filters.py`, `library.py`, `mutations.py`, `stages.py`, tests `test_clocked_battery.py`, `test_mutations_clock.py`, `test_simulation_plan.py`, `test_phase6.py`)
+
+- **Protocole (décision de Téo)** : la CLK est le dernier signal des marches ; un seul signal change à la fois, CLK comprise ; **elle démarre à 1** ; sorties lues à chaque pas. Un circuit à CLK est **toujours** jugé sur sa batterie, même sans boucle ; la CLK compte dans le vecteur pour la mémoire.
+  `run_sequence(..., clocks=)`, `BatteryResult.clocked`, `SequentialSignature.memory` (un circuit à CLK peut ne pas avoir de mémoire), `Component.has_memory` en tient compte.
+- **Filtres** : la CLK est un signal comme un autre ; **une CLK qui ne change aucune sortie est refusée comme « entrée inutile »** (sinon accrocher une CLK inutile à n'importe quel circuit le ferait passer pour nouveau : sa signature a un signal de plus) ; une sortie qui recopie la CLK est refusée.
+  Interprétation de ma part, à confirmer.
+- **Mutation** : pas de huitième `Mutation` (le test « les 7 mutations du cahier sont toutes tirées » l'aurait cassé, et je ne modifie pas un test). `MutationRules.allow_clock` / `Stage.allow_clock` : quand il est actif, « ajouter une entrée » pose parfois la CLK à la place (une seule par circuit) ; « retirer un nœud » peut la retirer ; sans le réglage, **aucun tirage de plus**.
+- **Vitesse** : `compile_circuit` / argument `plan` : le circuit est préparé une fois par batterie au lieu de chaque pas (la préparation prenait environ 70 % du temps) : **batterie 2,4 fois plus rapide** ; résultats identiques. Coût mesuré d'une batterie pour une bascule D : 0,5 ms (1 entrée + CLK), 2,2 ms (2), 6,3 ms (3), 15 ms (4).
+- **Test de la phase, bascule à horloge** : 1 entrée, 1 sortie, boucles et CLK permises, bibliothèque vide : l'IA trouve la **bascule D exacte** aux graines 0, 5 et 6 (générations 121, 149 et 114) ; sans CLK permise, aucun composant n'a de CLK (contrôle négatif).
+  Mesure sur 8 graines (budget 300) : une mémoire à CLK (sans forcément la bascule D) est trouvée par 8 graines sur 8, dès la génération 1 à 48 ; la bascule D exacte par 3 sur 8 en 300 générations (8 sur 8 en 2 000 d'après une mesure plus longue, sur un CPU partagé).
+- Erreur de **mon test** : ma bascule à validation E active à 1 oscillait au démarrage (E démarre à 0 : le cœur voit S̄ = R̄ = 1 depuis l'état 0) : le code avait raison ; validation active à 0.
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1097 passed` en environ 70 s (1046 + 51 nouveaux) |
+| Erreurs volontaires (banc corrigé) | 21 sur 21 détectées (une survivante réelle comblée : le refus d'un composant par `compile_circuit`) |
+
+### Étape 7 faite : paliers 4 et 5 (`stages.py`, `tests/test_stages_phase6.py`)
+
+`STAGE_5` : mêmes limites que le palier 4 (un palier contient les précédents), boucles et CLK permises ; `STAGES_1_TO_5`. Valeurs de départ, à régler (le cahier ne donne aucun nombre d'entrées ou de sorties pour les paliers 4 et 5).
+`pytest` : `1102 passed` (+ 5).
+
+**Constat à trancher : le palier 5 est inatteignable par le parcours.** Le critère du cahier (« aucune nouveauté pendant N générations », N = 400) ne peut pas se déclencher au palier 4 : chaque paire de fonctions est une nouveauté, et la plus longue série de générations sans nouveauté mesurée au palier 4 est de **3 à 17** (8 graines, 7 000 générations, défis actifs).
 
 ### Mesures (scripts jetables hors du dépôt, graines 0 à 7)
 
@@ -83,26 +140,28 @@ Un circuit à bascules à front n'est donc atteignable que s'il a une entrée de
 
 ### En attente de Téo
 
-1. **Palier 4 et variante « défis »** : le gain est mesuré (1 sur 8 → 7 sur 8). Si tu es d'accord, je code les défis. À trancher : (a) **qui choisit la cible** : le système, au hasard parmi les tables absentes de la bibliothèque (ton principe « ce n'est pas toi qui donnes la table »), le test de la phase passant, lui, le demi-additionneur comme défi explicite ;
-   (b) la **proximité** (bits de table égaux, sorties dans l'ordre) ne sert qu'à **choisir les parents** pendant un défi, la formule de récompense du cahier ne change pas ; (c) les valeurs du palier 4 (je propose 4 entrées et 3 sorties au plus : 3 sorties couvrent les exemples du cahier à 4 entrées, additionneur 2 bits et comparateur).
-2. **Protocole de l'horloge** (le cahier ne le donne pas) : la CLK existe dans le simulateur mais aucun circuit à CLK ne peut encore être jugé. Proposition : la CLK est un signal de plus dans les marches (un seul signal change à la fois, entrées et CLK compris), **elle démarre à 1**, les sorties sont lues à chaque pas. Écart avec le cahier : il lit « juste avant chaque front montant » seulement. Alternative : CLK à 0 au départ, comme le cahier, mais aucune bascule à niveau ne passe. À toi de trancher.
-3. Les interprétations ci-dessous.
+1. **Quand quitter le palier 4** (constat ci-dessus ; « Critère de changement de palier » est un point du cahier à trancher) : le critère « N générations sans nouveauté » ne se déclenche jamais. Pistes, à toi de choisir : un nombre de générations fixe par palier ; « N générations sans défi atteint » (se déclenche presque toujours) ; ne pas compter comme nouveauté une paire de fonctions déjà connues (règle absente du cahier) ; permettre boucles et CLK plus tôt.
+2. **Choix des défis** : les cibles uniformes jusqu'à 4 entrées et 3 sorties sont presque toujours trop dures (3 défis atteints sur environ 40 tentés). À régler : favoriser les petites cibles (2 entrées, 2 sorties d'abord), ou la patience (300 générations), ou les deux.
+3. **Palier 4 / palier 5** : valeurs de départ (4 entrées, 3 sorties) ; la batterie coûte 15 ms pour 4 entrées et la CLK, donc l'entraînement au palier 5 est lent (de l'ordre de 6 générations par seconde).
+4. Les circuits à bascule à front montant (maître-esclave) oscillent toujours au démarrage (constat plus haut) : ils exigent une entrée de remise à zéro. Pas de question : c'est une conséquence des règles du cahier ; à savoir pour juger « bascules, registres, compteurs ».
 
-### Interprétations à confirmer (le cahier ne précise pas)
+### Interprétations (validées par Téo : « OK pour toutes »)
 
 - Le bonus mémoire ne vaut que pour une **nouveauté** (comme la réutilisation), pas pour un record ; valeur de départ 100.
-- Les cinq filtres, appliqués à une batterie : définitions ci-dessus (surtout « entrée inutile »).
-- Un circuit à boucle **sans** mémoire détectée est jugé comme un circuit combinatoire (table de vérité) ; il doit alors être stable sur sa table, comme avant.
-- Une marche instable rejette le circuit (cahier) : un circuit stable sur sa table mais qui oscille après un certain historique est maintenant rejeté (aucun circuit des paliers 1 à 3 n'est concerné : ils n'ont pas de boucle).
-- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100.
-- Palier 5 : pas encore défini (nombre d'entrées et de sorties, CLK) ; `Stage(5, 2, 2, allow_loops=True)` n'est qu'un réglage de test.
+- Les cinq filtres, appliqués à une batterie : définitions plus haut (surtout « entrée inutile »).
+- Un circuit à boucle **sans** mémoire détectée est jugé comme un circuit combinatoire (table de vérité).
+- Une marche instable rejette le circuit (cahier).
+- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100, `CHALLENGE_PARENT_SHARE = 0,5`, archive de 50, patience 300, palier 4 = 4 entrées / 3 sorties.
+- **Non validées** (apparues après son OK) : une CLK qui ne change aucune sortie est une « entrée inutile » ; un circuit à CLK est toujours jugé sur sa batterie même sans boucle.
 
 ### Limites connues
 
-- Le C# (`CircuitLoader.Validate`) ne connaît pas le type `"CLK"` : **ne pas envoyer de circuit à CLK à Unity** avant d'avoir ajouté ce type côté C#. Aujourd'hui rien ne le fait : `STAGES` ne change pas et aucune mutation ne pose encore de CLK.
-- Pas de mutation « ajouter une CLK » : elle attend le protocole de l'horloge. `Mutation` n'a pas changé (un membre de plus aurait cassé les appelants qui donnent tous les poids).
-- La batterie rejoue chaque marche sans partager les débuts communs (simple, un peu lent pour 4 entrées : 256 marches) ; à optimiser si besoin.
-- `Library._analyze` et `find_behavior_rejections` jouent chacun la batterie : un circuit à boucle la subit deux fois par essai.
+- Le C# (`CircuitLoader.Validate`) ne connaît pas le type `"CLK"` : **ne pas envoyer de circuit à CLK à Unity** avant d'avoir ajouté ce type côté C#. Aujourd'hui rien ne le fait : `STAGES` (1 à 3), seul utilisé par `live.py`, n'a ni boucle ni CLK. L'affichage en direct de circuits à mémoire n'est pas fait.
+- La batterie rejoue chaque marche sans partager les débuts communs (une optimisation possible : parcourir l'arbre des marches).
+- `Library._analyze` et `find_behavior_rejections` jouent chacun la batterie : un circuit à boucle ou à CLK la subit deux fois par essai.
+- Vitesse d'entraînement : environ 160 générations par seconde aux paliers 1 à 3 (avant : 173), environ 35 à 50 avec une CLK permise (1 entrée), davantage plus lent avec plus d'entrées.
+- Les `.meta` des fichiers C# de la phase 5, `python/src/logicai/routing.py` et `python/tests/test_routing.py` restent non suivis (voir « État de départ »).
+- Le cahier n'est pas modifié ; modifications proposées : `docs/modifications_cahier_proposees.md` (points 11 et 12).
 
 ---
 

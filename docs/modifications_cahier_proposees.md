@@ -85,8 +85,7 @@ Le cahier dit « chaque message est une ligne de texte JSON » et liste cinq typ
 
 Décision de Téo (10 octobre 2026) : la CLK est un **nœud que l'IA pose et câble comme une NAND** (une source à 1 broche, sans puits). Tous les nœuds CLK d'un circuit, y compris
 ceux qui sont dans des composants, partagent la même horloge, fournie par la simulation. Ce n'est pas une broche du composant (ni entrée, ni sortie).
-Proposé : cocher « Interprétation de la CLK » et y écrire cette décision. Le protocole de l'horloge (quand elle bascule par rapport aux entrées, niveau de départ) reste à trancher
-(voir le journal, session 6).
+Proposé : cocher « Interprétation de la CLK » et y écrire cette décision. Le protocole de l'horloge est le point 13.
 
 ## 12. Section « Circuits séquentiels » : la batterie de séquences (phase 6, nouveau, pas appliqué)
 
@@ -94,3 +93,21 @@ Le cahier dit « une batterie fixe de séquences d'entrées » sans dire lesquel
 de toutes les entrées à 0 et change une seule entrée par pas, pendant 4 pas ; la batterie contient toutes les séquences possibles. La signature est la suite des sorties lues à chaque pas.
 Pourquoi : si deux entrées passent à 1 en même temps, une bascule SR en NAND oscille (cahier, « Piège à connaître ») ; une batterie qui ferait ces changements simultanés rejetterait toute bascule.
 Le cahier reste valable : toute oscillation dans la batterie rejette le circuit. Les filtres anti-triche s'appliquent à chaque pas de chaque séquence.
+
+## 13. Section « L'entrée CLK » : protocole dans la batterie (phase 6, nouveau, pas appliqué)
+
+Décision de Téo (10 octobre 2026) : la CLK est un signal de plus dans les séquences de la batterie (point 12) : un seul signal change à la fois, CLK comprise ; **elle démarre à 1** ;
+les sorties sont lues **à chaque pas** (le cahier dit « juste avant chaque front montant » : ces instants font partie de ceux lus). Chaque pas laisse le circuit se stabiliser : c'est la demi-période, plus longue que T_max.
+Pourquoi 1 : au départ toutes les sorties valent 0, et une bascule en NAND dont la CLK est à 0 voit S̄ = R̄ = 1 depuis l'état 0 : elle oscille et serait rejetée. Conséquence à connaître : une bascule maître-esclave (front montant) oscille
+au démarrage dans tous les cas ; elle exige une entrée de remise à zéro.
+
+## 14. Section « La variante « défis » » (phase 6, nouveau, pas appliqué)
+
+Décisions de Téo (10 octobre 2026), après une mesure (demi-additionneur trouvé par 0 graine sur 8 sans défi, 7 sur 8 avec) : le **système** choisit la cible au hasard parmi les tables absentes de la bibliothèque et acceptées par les filtres ;
+la **proximité** (bits de table égaux à ceux de la cible, sorties dans l'ordre) sert uniquement à choisir les parents (la moitié viennent d'une archive des circuits les plus proches) ; la formule de récompense ne change pas ;
+palier 4 = 4 entrées et 3 sorties au plus (valeur de départ).
+
+## 15. Section « Points à trancher » : critère de changement de palier (phase 6, constat, pas appliqué)
+
+Au palier 4, chaque paire de fonctions déjà connues est une nouveauté : la plus longue série de générations sans nouveauté mesurée est de 3 à 17. Le critère « N générations sans nouveauté » ne s'y déclenche donc jamais
+et le palier 5 est inatteignable par le parcours. À trancher (voir le journal, session 6).
