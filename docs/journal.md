@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 et 2 faites
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 3 faites
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -73,6 +73,37 @@ La première série en avait laissé survivre 5 : 4 venaient d'un vrai trou de *
 le premier élément passait). 4 tests de répartition ajoutés. Le mutant équivalent : sans `remaining.remove(kind)`, on retire au sort jusqu'à tomber sur une mutation possible ;
 la répartition des résultats est la même (uniforme parmi les possibles), seul le nombre de tirages change. Le code garde `remove` pour borner les essais à 7.
 
+### Étape 3 faite : récompense (`reward.py`, `tests/test_reward.py`, `errors.py`)
+
+- `RewardTracker(library, settings).evaluate(circuit)` suit le chemin du cahier : nettoyage, filtres (étape 1), enregistrement dans la bibliothèque, puis récompense.
+  Issues (`TrialKind`) : `REJECTED` (0 point), `NEW`, `RECORD`, `NOTHING` (0 point). Le résultat (`TrialResult`) donne l'issue, le score, le composant concerné,
+  les motifs de refus et les composants réutilisés. Seule la bibliothèque change, et seulement pour une nouveauté ou un record.
+- Formule : nouveauté = `novelty + reuse × (composants distincts réutilisés) − k × N_NAND` ; record = `record − k × N_NAND` ; refusé ou rien = 0 (décision Q2).
+  Le terme mémoire vaut 0 (phase 6). `RewardSettings` porte les 4 poids ; poids négatif refusé (`InvalidRewardSettingsError`).
+- **Valeurs de départ, à régler par essais** : nouveauté 100, record 30, réutilisation 5, k = 1 par NAND (ordres de grandeur « grand, moyen, petit, petit » du cahier).
+  Ce sont des valeurs que j'ai choisies pour pouvoir démarrer, pas des valeurs du cahier.
+- Compteur de réutilisations par composant (`reuse_count`), sans effet sur les choix de l'IA (décision Q3).
+- On juge le circuit **après nettoyage** (celui qui sera enregistré). Sinon une NAND rebouclée qui n'alimente aucune sortie le rendrait « instable », alors que la
+  bibliothèque le garde stable une fois nettoyé (la stabilité porte sur toutes les NAND).
+- Un circuit sans sortie est refusé (0 point, sans motif de filtre) : le cahier ne le range pas dans les 5 filtres, mais la bibliothèque le refuse.
+  Un circuit invalide (composant inconnu) ou plus grand que les limites de la bibliothèque lève l'erreur au lieu d'être « refusé » : c'est une erreur de réglage.
+
+**Interprétations à confirmer par Téo** (le cahier ne précise pas) :
+
+1. Le bonus de réutilisation ne vaut que pour une **nouveauté** (« une nouvelle découverte »), pas pour un record.
+2. Il se compte **par composant distinct** posé dans le circuit gardé : poser trois fois NOT = une réutilisation de NOT.
+3. Seuls les composants du circuit **gardé** comptent : un composant posé sans servir à rien ne rapporte rien (anti-triche).
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `35 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 16 source files` |
+| `pytest` | `656 passed` (627 avant, 29 nouveaux) |
+| Mutations (copie hors du projet) | 23 erreurs volontaires dans `reward.py` : 22 détectées, 1 équivalente |
+
+Le mutant équivalent : enregistrer le circuit déjà nettoyé au lieu de l'original donne le même résultat, car `register` nettoie lui-même (le nettoyage est idempotent).
+
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
@@ -80,8 +111,8 @@ L'état de départ était le même que dans le journal (439 tests). Python 3.11 
 
 ### Ce qui reste (phase 4)
 
-Étapes 3 à 6 (récompense, boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
-Toujours ouverts : interprétation de la CLK (phase 6), poids de la récompense et valeur de N (par essais).
+Étapes 4 à 6 (boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
+Toujours ouverts : interprétation de la CLK (phase 6), valeur de N et poids de la récompense (par essais).
 Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
 
 ---

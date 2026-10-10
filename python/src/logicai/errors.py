@@ -103,3 +103,7 @@ class LibraryFormatError(LibraryError):
 
 class InvalidMutationRulesError(Exception):
     """Les réglages demandés pour les mutations ne sont pas valides."""
+
+
+class InvalidRewardSettingsError(Exception):
+    """Les réglages demandés pour la récompense ne sont pas valides."""
