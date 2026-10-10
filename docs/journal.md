@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), étapes 1 à 5 faites
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), terminée
 
 ### Plan validé par Téo (« OK avec tes recommandations »)
 
@@ -177,53 +177,81 @@ alors qu'il n'y a plus rien à trouver : le cahier a un seul critère, je ne l'a
 Les tests de critère utilisent une évolution « scénarisée » (sous-classe de `Evolution` dont `step()` rend des rapports écrits d'avance) pour contrôler exactement quelles générations apportent
 une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolution (NOT puis montée aux paliers 2 et 3 avec N = 10, et reproductibilité).
 
-### Étape 6 EN COURS : poids des mutations, test de la phase pas encore écrit
+### Étape 6 faite : test de la phase 4 (`tests/test_phase4.py`), poids des mutations, 100 circuits récents
 
-**État du dépôt (mis à jour au commit du test de la phase) : la suite est verte** (hors mutations et journal définitif, encore à faire). Le test qui échouait juste après le
-changement des poids (`test_records_are_discoveries_but_not_novelties`) a reçu une nouvelle graine (4 -> 3, seul changement, assertion identique), avec l'accord de Téo (« tu peux continuer »
-après ma proposition) : avec les poids, la graine 4 ne produit plus de record, les graines 3 et 6 en produisent.
+**Décisions de Téo (10 octobre 2026)** :
 
-Décisions de Téo (réponses du 10 octobre 2026) :
+- Critère « approche les tailles minimales » = **cahier à la lettre** : NOT en premier au palier 1 (1 NAND) ; au palier 2, les 8 découvertes à 2 entrées toutes trouvées ;
+  AND = 2, OR = 3 et XOR = 4 NAND **exactement** ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR) à **1 NAND de leur minimum au plus**.
+- Poids des mutations : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, paramètre `weights` de `mutate`, poids invalides refusés) ;
+  `DEFAULT_RECENT_SIZE` de 20 à **100**.
 
-- **Critère « approche les tailles minimales » = cahier à la lettre** : les 8 portes trouvées ; AND = 2, OR = 3, XOR = 4 NAND exactement ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR)
-  à 1 NAND de leur minimum au plus.
-- **Poids des mutations + 100 circuits récents** : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, option `weights` de `mutate`) ;
-  `DEFAULT_RECENT_SIZE` passe de 20 à 100.
+**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND à 2 entrées ; le test de la phase les recalcule lui-même, rien n'est recopié de mémoire) :
+NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier.
 
-**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND avec 2 entrées, script jetable, pas de valeur prise de mémoire) :
-NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier (AND 2, OR 3, XOR 4).
-
-**Essais chiffrés (8 graines par ligne, 3000 générations au palier 2 après NOT, 4 réglages comparés ; scripts jetables)** :
+**Pourquoi les poids** : avec l'ancien tirage (tout à égalité), le blocage était la *découverte* de NOR, XOR et XNOR (les portes trouvées l'étaient presque toujours à leur taille minimale).
+Essais (8 graines par ligne, 3000 générations au palier 2 après NOT, scripts jetables) :
 
 | Réglage | Les 8 portes trouvées | Les 8 à leur taille minimale |
 | --- | --- | --- |
-| Ancien (tout à égalité, 20 récents) | 2 graines sur 8 | 1 sur 8 |
+| Ancien (tout à égalité, 20 récents) | 2 sur 8 | 1 sur 8 |
 | 100 récents seulement | 4 sur 8 | 3 sur 8 |
 | **Favoriser les ajouts + 100 récents (retenu)** | **7 sur 8** | **5 sur 8** |
 | Favoriser les ajouts, 20 récents | 7 sur 8 | 3 sur 8 |
 | 300 récents, tout à égalité | 3 sur 8 | 0 sur 8 |
 
-Avec l'ancien algorithme, les portes trouvées l'étaient presque toujours à leur taille minimale : le blocage était la **découverte** de NOR, XOR et XNOR. Avec les poids, la découverte
-n'est plus le blocage ; ce sont les dernières réductions de taille (un XOR resté à 5 NAND, par exemple).
+**Fiabilité réelle de l'IA (à ne pas surestimer)** : avec les réglages finaux et le critère ci-dessus (flux du test : palier 1 jusqu'à NOT, puis palier 2) :
 
-**Résultat de la recherche de graines (réglages réels, flux du test : palier 1 jusqu'à NOT, puis palier 2, 16 graines, 2500 générations) : 4 graines sur 16 réussissent le critère
-« cahier à la lettre »** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210). Dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND**
-au lieu de 4 : réduire un circuit déjà trouvé est l'étape qui bloque. Le test de la phase (`tests/test_phase4.py`) utilise les graines 1, 12 et 11 : il prouve que l'IA *peut* le faire de façon
-reproductible, pas qu'elle le fait à coup sûr. Cet écart avec mon essai précédent (5 graines sur 8 à « tout au minimum » en 3000 générations) n'est pas expliqué ; les deux échantillons sont petits
-et les déroulements diffèrent, donc je ne les additionne pas.
+- **4 graines sur 16 réussissent en 2500 générations** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210) ;
+- **6 graines sur 12 réussissent en 4000 générations** (3 sur 12 à 2500 : plus de temps aide) ;
+- dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND** au lieu de 4 : l'étape qui bloque est la *réduction* d'un circuit déjà trouvé.
 
-À faire : essai sur le nombre de mutations par enfant (en cours) ; mutations ; 4 contrôles ; journal définitif.
+Le test de la phase utilise les graines 1, 12 et 11 (fixes, reproductibles) plus un parcours complet avec `Curriculum` (N = 400, graine 1). Il prouve que l'IA **peut** y arriver, de façon reproductible,
+pas qu'elle y arrive à coup sûr. Contrôle négatif fait : avec la graine 0, le critère n'est pas atteint (XOR à 6), donc le test échouerait pour cette graine.
+Mon premier essai (5 graines sur 8 à « tout au minimum » en 3000 générations) était plus optimiste ; les échantillons sont petits et les déroulements diffèrent, je ne les additionne pas.
+
+**Essai sur le nombre de mutations par enfant** (12 graines, 4000 générations, critère ci-dessus) : actuel (1 à 12, uniforme) 6 sur 12 ; petits nombres favorisés (plus petit de 2 tirages) 7 sur 12 ;
+1 à 6 mutations 3 sur 12. Écart dans le bruit, **aucun changement retenu**.
+
+**Test modifié, avec l'accord de Téo** : `test_records_are_discoveries_but_not_novelties` : seul le numéro de graine change (4 -> 3), l'assertion est identique. Avec les poids, la graine 4 ne produit plus de
+record dans les 20 premières générations du palier 2 ; les graines 3 et 6 en produisent.
+
+**Mutations (copie hors du projet)** : `mutations.py` 29 erreurs volontaires (dont 7 sur les poids), 28 détectées, 1 équivalente (celle de l'étape 2) ; `evolution.py` 25 erreurs, 24 détectées au départ.
+La survivante (« le nombre de mutations vaut toujours le maximum ») était détectée avant le changement d'algorithme : un trou de **mes tests**, révélé par ce changement. Test ajouté
+(`test_mutation_count_covers_min_to_max_inclusive`, qui compte les mutations réellement appliquées) : les 4 erreurs sur ce tirage sont maintenant détectées.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `40 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 18 source files` |
+| `pytest` | `701 passed` en environ 58 s (689 avant, 12 nouveaux dont 5 pour le test de la phase) |
+
+Incident : une commande de ma part a été bloquée par une vérification de sécurité (un `rm -rf` sur un chemin construit avec des variables shell). Rien n'a été supprimé ni exécuté ; relancée avec la
+forme sûre `"${VAR:?}"`.
 
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
 L'état de départ était le même que dans le journal (439 tests). Python 3.11 : toujours pas vérifié par exécution.
 
-### Ce qui reste (phase 4)
+### Bilan de la phase 4 et ce qui reste
 
-Étape 6 (test de la phase : NOT, puis les 8 découvertes à 2 entrées, tailles minimales). Pas commencée.
-Toujours ouverts : interprétation de la CLK (phase 6), réglages de départ à valider (poids de la récompense, 50 enfants / 1 à 12 mutations / 20 récents, N = 400).
-Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
+**Phase 4 terminée sur le plan du code et des tests** (étapes 1 à 6 faites, 701 tests, 4 contrôles verts). Réserve à retenir : la fiabilité de l'IA sur le critère strict est d'environ 25 à 50 % selon le budget
+(voir ci-dessus) ; le XOR à 4 NAND est le point dur. Pistes si besoin plus tard : mieux réduire les circuits déjà trouvés, budget de générations plus grand.
+
+Phase 5 (liaison en direct, socket Python vers Unity) : **non commencée**, à lancer sur demande de Téo.
+
+**À valider par Téo** :
+
+- les valeurs de départ choisies par moi : poids de la récompense (100 / 30 / 5 / 1), 50 enfants, 1 à 12 mutations, 100 récents, N = 400 ;
+- mes interprétations : « retirer un nœud » ne retire que NAND et composants ; le bonus de réutilisation ne vaut que pour une nouveauté, par composant distinct, composants du circuit gardé ;
+- le fait que le test de la phase 4 s'appuie sur des graines qui réussissent (et que la suite dure maintenant environ 1 minute) ;
+- sa vérification visuelle dans Unity (phase 3).
+
+**Toujours ouverts** : interprétation de la CLK (phase 6, Téo a noté dans le cahier « CLK = horloge donc un petit composant qui peut faire une horloge »).
+**À faire côté cahier** : reporter dans le document en ligne les modifications 1 à 9 (voir `docs/modifications_cahier_proposees.md`), sinon une ré-exportation les efface. La copie locale n'a pas reçu les
+points 7 à 9 (taille maximale d'un circuit, valeur de N, palier 3 = 68 découvertes) : proposés seulement.
 
 ---
 

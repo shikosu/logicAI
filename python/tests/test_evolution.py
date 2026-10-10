@@ -4,6 +4,7 @@ import random
 
 import pytest
 
+import logicai.evolution as evolution_module
 from logicai.circuit import Circuit
 from logicai.cleanup import remove_useless_nodes
 from logicai.errors import InvalidEvolutionSettingsError
@@ -11,7 +12,7 @@ from logicai.evolution import Evolution, EvolutionSettings, GenerationReport
 from logicai.filters import find_rejections
 from logicai.flatten import flatten
 from logicai.library import Library
-from logicai.mutations import MutationRules
+from logicai.mutations import MutationResult, MutationRules
 from logicai.reward import RewardTracker, TrialKind
 
 # Réglages des paliers 1 et 2 : une seule sortie, pas de boucle (décisions Q4 et Q5).
@@ -159,6 +160,33 @@ def test_child_gets_at_least_one_change_and_at_most_max_mutations() -> None:
     for _ in range(30):
         child = many.propose_child()
         assert len(child.nodes()) + len(child.wires()) <= 2 + 4
+
+
+def test_mutation_count_covers_min_to_max_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle : un enfant reçoit un nombre de mutations tiré entre ``min_mutations`` et
+    # ``max_mutations``, bornes comprises (ni toujours le minimum, ni le maximum).
+    calls = {"count": 0}
+    real_mutate = evolution_module.mutate
+
+    def counting_mutate(
+        circuit: Circuit, rng: random.Random, rules: MutationRules, library: Library
+    ) -> MutationResult:
+        calls["count"] += 1
+        return real_mutate(circuit, rng, rules, library)
+
+    monkeypatch.setattr(evolution_module, "mutate", counting_mutate)
+    settings = EvolutionSettings(
+        children_per_generation=1, min_mutations=2, max_mutations=5
+    )
+    evolution = Evolution(Library(), LEVEL_1, settings, seed=0)
+    seen = set()
+    for _ in range(200):
+        calls["count"] = 0
+        evolution.propose_child()
+        seen.add(calls["count"])
+    assert seen == {2, 3, 4, 5}
 
 
 def test_children_respect_the_level_rules() -> None:
