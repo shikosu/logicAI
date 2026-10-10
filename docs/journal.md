@@ -4,6 +4,108 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), **en cours** : CLK, mémoire et bascule faites ; palier 4 et horloge en attente de Téo
+
+### Décisions de Téo en début de session
+
+| Question | Réponse |
+|---|---|
+| Interprétation de la CLK (point resté ouvert du cahier) | **Nœud CLK posable** : source à 1 broche que l'IA pose et câble comme une NAND ; la simulation lui donne le signal ; tous les nœuds CLK partagent la même horloge ; ce n'est pas une broche du composant |
+| Comment tester les circuits à mémoire sans rejeter toute bascule | **Un seul changement d'entrée à la fois** : chaque séquence (« marche ») part de toutes les entrées à 0 et change une entrée par pas, 4 pas ; toute oscillation rejette le circuit (cahier intact) |
+
+### État de départ (vérifié)
+
+Python 3.14.7 ; `ruff check`, `ruff format --check`, `mypy` verts ; **914 tests** (le journal annonçait 896 : les 18 de plus sont ceux de `python/tests/test_routing.py`).
+`python/src/logicai/routing.py` et `python/tests/test_routing.py` (tracé des câbles pour l'affichage) **ne sont suivis par aucun commit et absents du journal** : je n'y ai pas touché et je ne les ai pas commités.
+Les `.meta` des fichiers C# de la phase 5 sont toujours non suivis (à commiter par Téo, comme convenu).
+
+### Étape 2 faite : nœud CLK (`circuit.py`, `simulation.py`, `flatten.py`, `cleanup.py`, `serialization.py`, `layout.py`, `tests/test_clock.py`)
+
+- `NodeKind.CLK` : 0 puits, 1 source ; `Circuit.clocks()`. La valeur de la CLK est **imposée par l'appelant** (`settle(..., clock=)` et `tick(..., clock=)`), comme une entrée, sans retard, figée pendant un appel :
+  l'appelant la fait changer entre deux appels, une fois le circuit stabilisé (c'est la demi-période plus longue que T_max du cahier). La CLK se lit dans une case de plus, après les vraies entrées (toutes les CLK partagent cette case).
+- **Un circuit qui a une CLK refuse de se simuler sans valeur d'horloge** (`SimulationError`) : la table de vérité, les relevés et la bibliothèque ne prennent donc jamais la CLK pour 0 en silence.
+- Une CLK dans un composant reste une CLK dans le circuit aplati ; une CLK qui n'alimente rien d'utile est retirée par le nettoyage ; JSON : type `"CLK"` ; placement : colonne 0 avec les entrées.
+- **Le protocole de l'horloge (quand elle bascule par rapport aux entrées) n'est pas fixé** : voir « En attente de Téo ».
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `937 passed` (914 + 23 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | 11 sur 11 détectées |
+
+Une erreur de **mon test** (le code était juste) : j'avais écrit 7 NAND pour la bascule D du test de nettoyage ; elle en a 5 (la NAND inutile et la CLK inutile étaient bien retirées).
+
+### Étape 3 faite : circuits à mémoire (`sequential.py`, `filters.py`, `library.py`, `tests/test_sequential.py`)
+
+- `sequential.py` : batterie (`battery_walks`, `walk_vectors`), `has_loop`, `run_battery` (rend `None` sans boucle ou sans entrée : pas de mémoire possible), signature séquentielle canonique (`sequential_form`).
+  La signature est la réponse à toute la batterie ; **entrées échangées = une seule découverte**, sorties jamais permutées (cahier). `BATTERY_LENGTH = 4` et `MAX_CANONICAL_INPUTS = 5` (au-delà, l'ordre d'origine est gardé et `exact = False`).
+- `filters.py` : `find_behavior_rejections` juge un circuit sur sa batterie quand il a une mémoire, sinon exactement comme `find_rejections` (qui n'a **pas** changé : le test `test_filters.py:204` qui range la bascule SR en « instable » reste vrai).
+  Les cinq filtres du cahier sont appliqués à chaque pas de chaque marche : entrée inutile = retirer tous ses changements d'une marche ne modifie jamais les sorties ; sortie constante ; sorties identiques ; sortie qui recopie une entrée ; instable = une marche oscille.
+- `library.py` : un circuit dont la batterie révèle une mémoire est enregistré avec sa signature séquentielle (nom `C-001`…, record = moins de NAND, ordre des entrées préservé, sauvegarde/rechargement) ; une marche qui oscille est refusée (`UnstableCircuitError`). Une boucle sans mémoire reste un composant combinatoire.
+- Calculé **à la main avant de coder**, puis retrouvé par le code : la marche S̄, R̄, S̄, S̄ de la bascule donne les sorties (1,1), (0,1), (0,1), (1,0), (1,0) ; (1,1) est atteint deux fois avec deux sorties différentes : c'est la mémoire. Il faut 4 changements pour cela (testé : 3 ne suffisent pas).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `986 passed` (937 + 49 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | 23 sur 23 détectées |
+
+Une erreur de prémisse dans **mes tests** (2 tests en échec, le code était juste) : j'avais supposé qu'une bascule aux **sorties échangées** est une autre découverte. C'est la **même** que la bascule aux entrées échangées (la bascule SR est symétrique : échanger S̄ et R̄ échange Q et Q̄), conformément à la décision du cahier ; j'ai gardé un test qui le documente et ajouté un vrai cas où l'ordre des sorties compte (une mémoire et une porte symétrique).
+Un trou connu comblé par anticipation (leçon de la phase 5) : avec 2 entrées, une permutation est son propre inverse ; un test à 3 entrées (rotation) distingue l'ordre de l'ordre inverse.
+
+### Étape 4 faite : bonus mémoire et paliers avec boucles (`reward.py`, `library.py`, `stages.py`, `tests/test_reward_memory.py`, `tests/test_phase6.py`)
+
+- `RewardSettings.memory` (**100 au départ**, « grand » comme la nouveauté, à régler par essais) : bonus **ajouté à une nouveauté** dont le composant a une mémoire (`Component.has_memory`). `TrialResult.memory` dit si le composant est un circuit à mémoire. `RewardTracker` juge maintenant les filtres sur la batterie.
+- `Stage.allow_loops` (faux par défaut) : un palier peut permettre les boucles. `STAGES` (paliers 1 à 3) est **inchangé**, donc `live.py` aussi.
+- **Test de la phase, partie mémoire** (`test_phase6.py`) : avec les boucles permises, l'IA trouve la bascule SR minimale (2 NAND, signature exacte), à 1 sortie (graines 1, 2, 5) et à 2 sorties (graines 4, 7), reproductible ; **contrôle négatif** : sans boucle, jamais de mémoire.
+- Trois erreurs de **mes tests** corrigées (le code était juste) : la bascule trouvée réutilise le composant NAND (+5 de réutilisation) ; un « NOT avec une boucle sans effet » coûte 2 NAND, pas 1 ; `flatten` avec `{}` ne connaît pas le composant NAND (il faut `library.definitions()`).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1005 passed` en environ 37 s (986 + 19 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | 10 sur 10 détectées |
+| Vitesse d'entraînement (paliers 1 à 3, sans boucle) | 173 → 160 générations par seconde (environ -8 %, le test de boucle de chaque essai) |
+
+### Mesures (scripts jetables hors du dépôt, graines 0 à 7)
+
+| Mesure | Résultat |
+|---|---|
+| Demi-additionneur, bibliothèque vide, 2 entrées / 2 sorties permises | **8 sur 8**, entre 176 et 1 287 générations |
+| Demi-additionneur par le **parcours normal** (paliers 1 à 3, N = 400, puis palier 4 à 4 entrées / 3 sorties) | **0 sur 8** : palier 4 atteint aux générations 2 984 à 5 881 ; budget total 6 000 ; la bibliothèque passe à 9 000 – 20 000 composants (environ 3 nouveaux par génération) |
+| Même parcours, palier 4 limité à 2 entrées / 2 sorties | **0 sur 8**, 3 000 à 6 000 composants |
+| Mémoire, boucles permises, bibliothèque vide | **16 sur 16** (2 entrées, 1 ou 2 sorties), en 3 à 79 générations ; la première mémoire est exactement la bascule minimale (2 NAND) dans 7 graines sur 8 à 1 sortie et 3 sur 8 à 2 sorties |
+| Mémoire dans le parcours réel (paliers 1 à 3 puis palier à boucles, 3 entrées / 2 sorties) | 5 graines sur 8 atteignent le palier à boucles avant la génération 3 500 ; mémoire trouvée 2 à 19 générations plus tard, **mais la première est grosse (6 à 10 NAND)** : la bascule minimale vient ensuite par records |
+| **Prototype de « défi »** (cible = demi-additionneur ; la moitié des parents choisis pour leur proximité avec la table cible ; récompense inchangée), après 1 500 générations d'échauffement, 2 000 générations de budget | **sans défi 1 sur 8** ; **avec défi 7 sur 8** (113 à 1 958 générations) ; bibliothèque de 296 à 2 593 composants au lieu de 1 072 à 4 975 |
+
+**Lecture.** Le demi-additionneur est une paire de fonctions (XOR, AND) parmi des dizaines de milliers de paires possibles dès que la bibliothèque est riche : chaque combinaison de fonctions déjà connues est une « nouveauté » (la signature est nouvelle) et rapporte 100 points. C'est le risque « explosion combinatoire » du cahier, et sa parade, la variante « défis ».
+La cause exacte n'est pas isolée (hypothèse non testée : dilution des parents dans une bibliothèque géante).
+
+**Démarrage des circuits à horloge (constat à te soumettre).** Départ « toutes les sorties à 0 » + « oscillation = rejet » (règles du cahier) : une bascule D à niveau (5 NAND) est **stable seulement si la CLK démarre à 1** (instable à 0) ; une bascule **maître-esclave** (front montant) est **instable dans les quatre cas** (CLK 0 ou 1, D 0 ou 1) : au démarrage, une de ses deux bascules SR voit (1, 1) depuis l'état 0 et oscille.
+Un circuit à bascules à front n'est donc atteignable que s'il a une entrée de remise à zéro (toutes les entrées démarrent à 0 : une remise active à 0 est enclenchée au départ).
+
+### En attente de Téo
+
+1. **Palier 4 et variante « défis »** : le gain est mesuré (1 sur 8 → 7 sur 8). Si tu es d'accord, je code les défis. À trancher : (a) **qui choisit la cible** : le système, au hasard parmi les tables absentes de la bibliothèque (ton principe « ce n'est pas toi qui donnes la table »), le test de la phase passant, lui, le demi-additionneur comme défi explicite ;
+   (b) la **proximité** (bits de table égaux, sorties dans l'ordre) ne sert qu'à **choisir les parents** pendant un défi, la formule de récompense du cahier ne change pas ; (c) les valeurs du palier 4 (je propose 4 entrées et 3 sorties au plus : 3 sorties couvrent les exemples du cahier à 4 entrées, additionneur 2 bits et comparateur).
+2. **Protocole de l'horloge** (le cahier ne le donne pas) : la CLK existe dans le simulateur mais aucun circuit à CLK ne peut encore être jugé. Proposition : la CLK est un signal de plus dans les marches (un seul signal change à la fois, entrées et CLK compris), **elle démarre à 1**, les sorties sont lues à chaque pas. Écart avec le cahier : il lit « juste avant chaque front montant » seulement. Alternative : CLK à 0 au départ, comme le cahier, mais aucune bascule à niveau ne passe. À toi de trancher.
+3. Les interprétations ci-dessous.
+
+### Interprétations à confirmer (le cahier ne précise pas)
+
+- Le bonus mémoire ne vaut que pour une **nouveauté** (comme la réutilisation), pas pour un record ; valeur de départ 100.
+- Les cinq filtres, appliqués à une batterie : définitions ci-dessus (surtout « entrée inutile »).
+- Un circuit à boucle **sans** mémoire détectée est jugé comme un circuit combinatoire (table de vérité) ; il doit alors être stable sur sa table, comme avant.
+- Une marche instable rejette le circuit (cahier) : un circuit stable sur sa table mais qui oscille après un certain historique est maintenant rejeté (aucun circuit des paliers 1 à 3 n'est concerné : ils n'ont pas de boucle).
+- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100.
+- Palier 5 : pas encore défini (nombre d'entrées et de sorties, CLK) ; `Stage(5, 2, 2, allow_loops=True)` n'est qu'un réglage de test.
+
+### Limites connues
+
+- Le C# (`CircuitLoader.Validate`) ne connaît pas le type `"CLK"` : **ne pas envoyer de circuit à CLK à Unity** avant d'avoir ajouté ce type côté C#. Aujourd'hui rien ne le fait : `STAGES` ne change pas et aucune mutation ne pose encore de CLK.
+- Pas de mutation « ajouter une CLK » : elle attend le protocole de l'horloge. `Mutation` n'a pas changé (un membre de plus aurait cassé les appelants qui donnent tous les poids).
+- La batterie rejoue chaque marche sans partager les débuts communs (simple, un peu lent pour 4 entrées : 256 marches) ; à optimiser si besoin.
+- `Library._analyze` et `find_behavior_rejections` jouent chacun la batterie : un circuit à boucle la subit deux fois par essai.
+
+---
+
 ## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), terminée
 
 ### Plan validé par Téo

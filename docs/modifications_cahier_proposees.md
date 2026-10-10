@@ -80,3 +80,17 @@ Le cahier dit « chaque message est une ligne de texte JSON » et liste cinq typ
 - `circuit` : `{"message":"circuit","circuit":<format d'un fichier de circuit>}`. `etat` : `{"message":"etat","etat":{"top","stable","noeuds","cables"}}` (même forme que la clé `etat` d'un fichier).
 - `decouverte` : `{"message":"decouverte","nom","genre":"nouveaute"|"record","cout","circuit","ordre_de_pose":[...]}` ; `stats` : `{"message":"stats","palier","generation","decouvertes","recompense_moyenne"}`.
 - Python écoute sur 127.0.0.1 et Unity se connecte (décision de Téo, 10 octobre 2026).
+
+## 11. Section « L'entrée CLK » et « Points à trancher » : interprétation de la CLK (phase 6, nouveau, pas appliqué)
+
+Décision de Téo (10 octobre 2026) : la CLK est un **nœud que l'IA pose et câble comme une NAND** (une source à 1 broche, sans puits). Tous les nœuds CLK d'un circuit, y compris
+ceux qui sont dans des composants, partagent la même horloge, fournie par la simulation. Ce n'est pas une broche du composant (ni entrée, ni sortie).
+Proposé : cocher « Interprétation de la CLK » et y écrire cette décision. Le protocole de l'horloge (quand elle bascule par rapport aux entrées, niveau de départ) reste à trancher
+(voir le journal, session 6).
+
+## 12. Section « Circuits séquentiels » : la batterie de séquences (phase 6, nouveau, pas appliqué)
+
+Le cahier dit « une batterie fixe de séquences d'entrées » sans dire lesquelles. Décision de Téo (10 octobre 2026) : **un seul changement d'entrée à la fois**. Une séquence part
+de toutes les entrées à 0 et change une seule entrée par pas, pendant 4 pas ; la batterie contient toutes les séquences possibles. La signature est la suite des sorties lues à chaque pas.
+Pourquoi : si deux entrées passent à 1 en même temps, une bascule SR en NAND oscille (cahier, « Piège à connaître ») ; une batterie qui ferait ces changements simultanés rejetterait toute bascule.
+Le cahier reste valable : toute oscillation dans la batterie rejette le circuit. Les filtres anti-triche s'appliquent à chaque pas de chaque séquence.
