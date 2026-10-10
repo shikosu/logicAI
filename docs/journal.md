@@ -4,6 +4,34 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Mise à jour de la copie locale du cahier
+
+### Ce qui est fait
+
+Sur demande explicite de Téo (« modifie la copie du cahier »), les 6 points de `docs/modifications_cahier_proposees.md` ont été appliqués à
+`docs/cahier_des_charges.md` : T_max + 1 tops (texte et tableau des trois cas), composants équivalents (entrées échangées, une seule découverte),
+cases cochées dans « Points à trancher » (composants équivalents ; 15 et 15 par défaut, réglable jusqu'à aucune limite), palier 2 et test de la
+phase 4 (8 découvertes), liste des noms connus, précisions sur le JSON (`x`/`y` calculés par Python, type `COMPOSANT`, clé `etat`).
+Une note a été ajoutée dans l'en-tête de la copie : elle diffère maintenant du document en ligne.
+
+Chaque point a été vérifié avant d'être écrit : décisions de Téo relues dans ce journal (sessions 2 et 3), et valeurs relues dans le code
+(`simulation.py` : T_max + 1 ; `signature.py` : noms connus ; `library.py` : 15 et 15 ; `serialization.py` et `layout.py` : format JSON).
+
+### Contrôles
+
+Aucun code modifié (documentation seulement), donc `ruff`, `mypy` et `pytest` n'ont pas été relancés. Le dossier `python/.venv` n'existe pas
+sur la machine de cette session (Linux, pas le Mac de Téo) : ces contrôles ne pouvaient de toute façon pas y être exécutés.
+
+### Ce qui reste
+
+- **Reporter les 6 modifications dans le document en ligne** (claude.ai), sinon une ré-exportation les effacerait.
+- Le palier 3 indique toujours « 218 » fonctions : avec la décision « entrées échangées = une seule découverte », le nombre de découvertes sera plus
+  petit. Il n'a pas été calculé, donc le cahier n'a pas été modifié sur ce point (à faire calculer avant la phase 4 si Téo le souhaite).
+- Points à trancher toujours ouverts : taille maximale d'un circuit, interprétation de la CLK (Téo a noté dans le cahier : « CLK = horloge donc un
+  petit composant qui peut faire une horloge », à clarifier), poids de la récompense, critère de changement de palier.
+
+---
+
 ## 10 octobre 2026 — Session 3 : phase 3 (affichage Unity statique)
 
 ### Ce qui est fait

@@ -3,6 +3,8 @@
 > Copie locale du cahier des charges (document claude.ai), exportée le 10 octobre 2026.
 > C'est la référence pour Claude Code. Si le document en ligne change, il faut ré-exporter ce fichier.
 > Les deux schémas du document ont été convertis en texte (blocs « Schéma »).
+> Mise à jour locale du 10 octobre 2026 (après les phases 1 à 3) : cette copie contient des modifications absentes du document en ligne
+> (liste dans `docs/modifications_cahier_proposees.md`). Avant de ré-exporter, il faut reporter ces modifications dans le document en ligne.
 
 Oct 10, 2026 · Téo Vidal
 
@@ -63,7 +65,7 @@ Le temps avance par **tops**. À chaque top, toutes les NAND calculent leur nouv
 
 Au départ, toutes les sorties valent 0. Ce point de départ fixe rend chaque test reproductible.
 
-Un circuit est **stable** quand plus aucune sortie ne change d'un top à l'autre. La simulation attend au maximum T_max tops, avec T_max = nombre de NAND du circuit après aplatissement. Un circuit sans boucle se stabilise toujours dans ce délai, car aucun chemin ne compte plus de NAND que le circuit entier.
+Un circuit est **stable** quand plus aucune sortie ne change d'un top à l'autre. La simulation calcule au plus **T_max + 1** tops, avec T_max = nombre de NAND du circuit après aplatissement : jusqu'à T_max tops pour atteindre l'état final d'un circuit sans boucle, plus un top qui confirme que plus rien ne change. Un circuit sans boucle se stabilise toujours dans ce délai, car aucun chemin ne compte plus de NAND que le circuit entier.
 
 ### L'entrée CLK
 
@@ -99,8 +101,8 @@ Chaque test part du même état : toutes les sorties à 0.
 
 | Cas | Définition | Traitement |
 | --- | --- | --- |
-| Stable | Les sorties ne changent plus avant T_max tops | Signature enregistrée normalement |
-| Instable (oscillation) | Entrées figées, mais les sorties changent encore après T_max tops | Circuit rejeté |
+| Stable | Les sorties ne changent plus avant T_max + 1 tops | Signature enregistrée normalement |
+| Instable (oscillation) | Entrées figées, mais les sorties changent encore au top T_max + 1 | Circuit rejeté |
 | Mémoire | Pour une même entrée actuelle, la sortie diffère selon les entrées passées | Bonus « mémoire » (voir « Système de récompense ») |
 
 ### Piège à connaître
@@ -169,6 +171,8 @@ La progression NAND → portes classiques → circuits complexes vient du nombre
 
 Les nombres entre parenthèses sont les tailles minimales connues en NAND. Ils servent de repère pour juger si l'IA trouve des solutions optimales.
 
+Au palier 2, les 10 fonctions qui restent après les filtres font **8 découvertes**, car deux paires ont la même signature une fois les entrées échangées : A ET NON B = NON A ET B, et A OU NON B = NON A OU B (voir « Composants équivalents »).
+
 Le nom de chaque porte (AND, XOR…) est ajouté automatiquement par comparaison avec une liste connue, pour l'affichage uniquement. L'IA ne connaît pas ces noms.
 
 ### La variante « défis », pour plus tard
@@ -184,7 +188,7 @@ Chaque découverte récompensée devient automatiquement un **composant** : une 
 1. **Nettoyage** : on retire les NAND et les câbles qui n'influencent aucune sortie.
 2. **Ordre des broches** : les entrées et les sorties sont numérotées dans leur ordre de création.
 3. **Coût** : on compte les NAND après aplatissement, c'est-à-dire en ouvrant tous les sous-composants. Un XOR fait de 4 NAND coûte 4, même s'il est posé comme un seul bloc.
-4. **Nom** : si la signature correspond à une porte connue, elle prend son nom (AND, XOR…). Sinon, elle reçoit un numéro, par exemple C-017.
+4. **Nom** : si la signature correspond à une porte connue, elle prend son nom (AND, XOR…). Sinon, elle reçoit un numéro, par exemple C-017. Les noms connus sont NOT, AND, OR, NAND, NOR, XOR, XNOR, ANDNOT (A ET NON B), ORNOT (A OU NON B), MAJ (majorité) et MUX (multiplexeur 2 vers 1). Un composant sans nom connu s'appelle C-001, C-002… La liste est une donnée facile à étendre.
 5. **Enregistrement** dans la bibliothèque, sous forme de fichier JSON.
 
 ### Simulation d'un composant
@@ -195,7 +199,7 @@ Les composants sont rangés par référence. Si l'IA bat un record (même signat
 
 ### Composants équivalents
 
-« A AND NOT B » et « NOT A AND B » sont le même composant, avec ses deux entrées inversées. Il faut décider si on les compte comme une seule découverte. Ce point reste ouvert (voir « Risques, limites et points encore ouverts »).
+« A AND NOT B » et « NOT A AND B » sont le même composant, avec ses deux entrées **échangées**. **Décision : une seule découverte.** Deux circuits dont les entrées sont seulement échangées (permutées) ont la même signature. Les sorties ne sont jamais permutées : leur ordre fait partie du composant. Nier une entrée ne fusionne pas : AND et NOR restent deux découvertes.
 
 ## Les deux IA
 
@@ -282,6 +286,14 @@ Un NOT fait d'une seule NAND, dont les deux entrées sont alimentées par A :
 
 `[1, 0]` se lit « nœud 1, broche 0 ». Pour « de », c'est une broche source ; pour « vers », une broche puits.
 
+Précisions ajoutées après les phases 1 à 3 :
+
+- `x` et `y` sont **calculés par Python** (colonnes : `x = 2 × couche` ; `y` entiers, première entrée en haut). Unity ne calcule rien.
+- Un composant posé dans un circuit s'écrit `{"id": 3, "type": "COMPOSANT", "x": 2, "y": 0, "ref": "XOR", "entrees": 2, "sorties": 1}`.
+- Une clé facultative `etat` donne les valeurs 0/1 à un top, pour colorer les câbles :
+  `"etat": {"top": 3, "stable": true, "noeuds": [0, 1, 1], "cables": [0, 0, 1]}`. Les listes suivent l'ordre de `noeuds` et de `cables` du fichier.
+  C'est aussi la forme du message `etat` de la section « La liaison ».
+
 ### Côté Unity (C#)
 
 Trois scripts suffisent au départ :
@@ -314,7 +326,7 @@ Le projet avance en 7 phases. Chacune se termine par un test précis : on ne pas
 3. **Affichage Unity statique** : Unity lit un fichier JSON et dessine le circuit.
    - Test : les circuits de la phase 1 s'affichent correctement, câbles colorés selon leur valeur.
 4. **IA évolutionnaire, paliers 1 à 3** : mutations, récompense, filtres, changement de palier.
-   - Test : l'IA découvre seule NOT, puis les 10 fonctions à 2 entrées, et approche les tailles minimales (AND = 2, OR = 3, XOR = 4 NAND).
+   - Test : l'IA découvre seule NOT, puis les 8 découvertes à 2 entrées, et approche les tailles minimales (AND = 2, OR = 3, XOR = 4 NAND).
 5. **Liaison en direct** : socket Python → Unity, essai en direct au ralenti, rediffusion des découvertes.
    - Test : on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse.
 6. **Paliers 4 et 5** : plusieurs sorties, variante « défis », entrée CLK, bonus mémoire.
@@ -338,12 +350,12 @@ Le principal risque concerne le palier 4 et le réseau de neurones : rien ne gar
 
 ### Points à trancher
 
-- [ ] Composants équivalents par inversion des entrées (A AND NOT B et NOT A AND B) : une seule découverte ou deux ? Ma recommandation : une seule.
+- [x] Composants équivalents par inversion des entrées (A AND NOT B et NOT A AND B) : **une seule découverte** (décision validée, voir « Composants équivalents »).
 - [ ] Taille maximale d'un circuit : j'ai compris « illimité » pour le fan-out. Pour la taille, je propose aucune limite fixe, seulement la pénalité de taille. À confirmer.
 - [ ] Interprétation de la CLK (section « L'entrée CLK ») : à confirmer. ( CLK = horloge donc un petit composant qui peux faire une horloge))
 - [ ] Réglage des poids de la formule de récompense : par essais, à partir de la phase 4.
 - [ ] Critère de changement de palier : par exemple, aucune nouveauté pendant N générations. N reste à fixer.
-- [ ] Nombre maximal d'entrées et de sorties par composant.
+- [x] Nombre maximal d'entrées et de sorties par composant : **15 et 15 par défaut, réglable jusqu'à aucune limite** (décision validée).
 
 ## Glossaire
 

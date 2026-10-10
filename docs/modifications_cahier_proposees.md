@@ -1,5 +1,8 @@
 # Modifications proposées pour le cahier des charges
 
+> **État : les 6 points ci-dessous ont été appliqués à la copie locale `docs/cahier_des_charges.md` le 10 octobre 2026, à la demande de Téo.**
+> Il reste à les reporter dans le **document en ligne** (claude.ai), sinon une ré-exportation les effacerait.
+
 Le cahier (`docs/cahier_des_charges.md` et ton document en ligne) est en **lecture seule pour Claude** : je ne le modifie pas. Ce fichier
 liste, section par section, ce qui a changé pendant les phases 1 à 3 depuis que le cahier a été écrit. Il n'y a rien à calculer : c'est une
 liste de phrases à recopier dans ton document, ou à me demander de modifier (dans ce cas dis-le-moi clairement).
