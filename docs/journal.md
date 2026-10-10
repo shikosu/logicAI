@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), en cours
+## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), terminée
 
 ### Plan validé par Téo
 
@@ -332,12 +332,42 @@ Le C# compile, la liaison réseau, le modèle, le viewer en direct, le vrai `Upd
 4. Lancer Unity avant Python : « Python ne répond pas », puis « Connecté » au lancement de la commande. Relancer Python : la bibliothèque repart de la nouvelle session.
 5. Noter tout ce qui est illisible ou mal cadré (le réglage `ReplayStepSeconds` = 0,4 s est une valeur de départ).
 
+### Vérification visuelle par Téo : phase 5 close
+
+Téo (10 octobre 2026) : « visuellement tout marche ». Le test du cahier (« on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse ») est donc validé à l'écran, en plus des preuves automatiques
+(Python 875 tests ; Unity EditMode 178, PlayMode 5). **Phase 5 terminée.**
+
+Remarque de Téo, qui n'est pas un défaut de la liaison mais du **contenu** de l'essai en direct : les circuits montrés contiennent beaucoup de NAND et « ne font pas de circuit utile ». Il propose de donner des tables de vérité à l'IA
+pour guider sa recherche, « mais ce serait à voir ».
+
+**Mesure (faite à la demande de cette remarque, pas supposée)** : graine 1, 3000 générations (150 000 essais), en reproduisant exactement ce que l'affichage choisit (`LiveSession._on_trial` : un essai accepté qui n'est pas une
+découverte), taille mesurée sur le circuit tel qu'il est affiché (aplati et nettoyé), comparée au coût de la meilleure version connue de la même fonction. Script jetable hors du dépôt (`shown_vs_best.py`) : il utilise `Evolution`, `Curriculum`,
+`flatten`, `remove_useless_nodes` et `Library.cost`, sans rien modifier.
+
+| Constat | Valeur |
+| --- | --- |
+| Essais rejetés par les filtres | 61,6 % |
+| Essais acceptés mais sans rien apporter (`NOTHING` : fonction déjà connue, pas moins de NAND) | 38,3 % |
+| Découvertes (73 nouveautés + 54 records) | 127 essais sur 150 000, soit 0,085 % |
+| Part de `NOTHING` parmi les essais acceptés | 99,8 % |
+| NAND affichés : médiane / moyenne / maximum | 3 / 4,3 / 38 |
+| Plus grands que la meilleure version connue (au moins 2 fois / au moins 3 fois) | 10,8 % / 4,8 % |
+| Circuits affichés de 15 NAND ou plus | 3,5 % |
+
+Lecture : (1) **par construction, tout ce qui est montré en direct est un essai sans valeur** — une découverte part dans la bibliothèque, elle n'est pas montrée en direct. C'est mon interprétation du plan (point 2 : « un circuit accepté,
+aplati ») que Téo avait validée par « go » ; elle ne donne pas ce qu'il espérait. (2) Sur la taille, son impression est juste pour une **queue** (environ 1 circuit sur 10 est au moins deux fois trop gros ; 1 sur 29 a 15 NAND ou plus),
+pas pour la médiane (3 NAND). (3) La recherche n'a **aucun signal de proximité** : la récompense est « tout ou rien » (0 pour 99,9 % des essais), ce qui est la raison de fond pour laquelle l'IA tâtonne.
+
+Cahier : « Elle ne vise donc pas une table imposée » (système de récompense) ; la variante « défis » — le **système** se fixe lui-même une table absente de la bibliothèque, « ce n'est pas toi qui donnes la table » — est prévue pour
+**plus tard** et listée en phase 6 (« paliers 4 et 5 : plusieurs sorties, variante défis, entrée CLK, bonus mémoire »). Les risques du cahier citent déjà « circuits énormes ou inutiles » et « explosion combinatoire dès 4 entrées »
+avec les parades « pénalité de taille » et « variante défis ». Donner des tables à la main serait donc une **modification du cahier**, que je ne décide pas seul.
+
 ### Ce qui reste
 
-- **Vérification visuelle de Téo** (ci-dessus) : la phase 5 n'est close qu'après elle.
-- Réglages à ajuster selon ce qu'il voit : vitesse de rediffusion, rythme des essais (3 s / 0,5 s), lisibilité du panneau.
-- Pour Téo, à décider : mettre à jour la section « Commandes vérifiées » de `CLAUDE.md` (compte de tests Unity : 65 → 178 EditMode, 2 → 5 PlayMode ; ajouter `python -m logicai.live`). Je n'y touche pas sans son accord. (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
-- La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
+- **À trancher par Téo** (questions posées en fin de session) : (a) que montrer en direct (voir les options dans la conversation) ; (b) si, et quand, introduire les tables de vérité comme objectifs (variante « défis » du cahier, phase 6) ; (c) mettre à jour
+  la section « Commandes vérifiées » de `CLAUDE.md` (65 → 178 tests EditMode, 2 → 5 PlayMode, ajouter `python -m logicai.live`) : je n'y touche pas sans son accord.
+- Réglages à ajuster à l'usage : vitesse de rediffusion (`ReplayStepSeconds` = 0,4 s), rythme des essais (3 s / 0,5 s), largeur du panneau (240 px).
+- Ne pas commencer la phase 6 sans son accord (elle contient la variante « défis »).
 
 ---
 
