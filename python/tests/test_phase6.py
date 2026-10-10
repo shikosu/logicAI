@@ -1,24 +1,31 @@
-"""Test de la phase 6 (cahier, plan de développement) : partie mémoire.
+"""Test de la phase 6 (cahier, plan de développement).
 
 Test du cahier : « l'IA trouve un demi-additionneur, puis un circuit qui mémorise
-(bascule) ». Ce fichier couvre la seconde moitié : avec les boucles permises, l'IA
-trouve une bascule. La première moitié (demi-additionneur) attend la décision sur la
-variante « défis » : par le parcours normal (paliers 1 à 4), l'IA ne l'a pas trouvé sur
-8 graines (voir le journal).
+(bascule) ».
 
-Critère retenu : la bibliothèque reçoit un composant dont la signature est exactement
-celle de la bascule SR en NAND (2 NAND, le minimum), avec une sortie (Q) ou deux
-(Q, Q̄). Les graines sont figées et celles qui réussissent dans le budget : toutes ne
-réussissent pas (voir le journal pour le taux de réussite).
+- **Demi-additionneur** : par le parcours normal (paliers 1 à 4), l'IA ne l'a pas
+  trouvé sur 8 graines (voir le journal) : il y a trop de paires de fonctions possibles.
+  Avec la variante « défis » (décision de Téo), le système fixe la cible et l'IA la
+  trouve. Ici la cible est le demi-additionneur lui-même, passé explicitement : le test
+  vérifie que le mécanisme sait y arriver ; en vrai, le système choisit ses défis.
+- **Bascule** : avec les boucles permises, l'IA trouve la bascule SR en NAND. Critère :
+  la bibliothèque reçoit un composant dont la signature est exactement celle de la
+  bascule (2 NAND, le minimum), avec une sortie (Q) ou deux (Q, Q̄).
+
+Les graines sont figées et celles qui réussissent dans le budget : toutes ne réussissent
+pas (voir le journal pour le taux de réussite).
 """
 
 import pytest
 
 from builders import sr_latch, wire
+from logicai.behavior import truth_table
+from logicai.challenge import Challenge
 from logicai.circuit import Circuit, NodeKind
 from logicai.evolution import Evolution
 from logicai.flatten import flatten
 from logicai.library import Library
+from logicai.mutations import MutationRules
 from logicai.reward import TrialKind, TrialResult
 from logicai.sequential import run_battery, sequential_form
 from logicai.stages import Stage
@@ -128,3 +135,52 @@ def test_same_seed_same_discovery() -> None:
     assert [first.cost(n) for n in first.names()] == [
         second.cost(n) for n in second.names()
     ]
+
+
+# --- Le demi-additionneur, avec la variante « défis » ---------------------------------
+
+XOR, AND = 0b0110, 0b1000
+HALF_ADDER = Challenge(2, (XOR, AND))  # (SOMME, RETENUE), 2 entrées, 2 sorties
+# Générations d'échauffement à 3 entrées et 1 sortie : elles remplissent la bibliothèque
+# (environ 1 000 composants), comme dans le parcours réel.
+WARM_UP = 800
+CHALLENGE_BUDGET = 150
+# Graines qui réussissent, aux générations 26, 88 et 43 (mesuré) ; budget 150.
+CHALLENGE_SEEDS = (3, 5, 7)
+CONTROL_SEED = 3
+
+
+def _half_adder_search(seed: int, with_challenge: bool) -> tuple[Library, int | None]:
+    """Échauffe l'IA, puis cherche le demi-additionneur (avec ou sans défi)."""
+    library = Library()
+    evolution = Evolution(library, MutationRules(3, 1), seed=seed)
+    for _ in range(WARM_UP):
+        evolution.step()
+    evolution.rules = MutationRules(2, 2)
+    if with_challenge:
+        evolution.challenge = HALF_ADDER
+    for generation in range(1, CHALLENGE_BUDGET + 1):
+        evolution.step()
+        if library.has_signature(HALF_ADDER.signature):
+            return library, generation
+    return library, None
+
+
+@pytest.mark.parametrize("seed", CHALLENGE_SEEDS)
+def test_ai_finds_the_half_adder_when_it_is_the_challenge(seed: int) -> None:
+    library, generation = _half_adder_search(seed, with_challenge=True)
+    assert generation is not None, "demi-additionneur non trouvé dans le budget"
+    # Vérification indépendante : on recalcule la table de la définition rangée.
+    name = next(
+        n
+        for n in library.names()
+        if library.component(n).signature == HALF_ADDER.signature
+    )
+    definition = flatten(library.component(name).circuit, library.definitions())
+    assert truth_table(definition).outputs == (XOR, AND)
+
+
+def test_without_the_challenge_the_half_adder_is_not_found_in_the_same_budget() -> None:
+    # Contrôle négatif : même graine, même échauffement, même budget, sans défi.
+    _, generation = _half_adder_search(CONTROL_SEED, with_challenge=False)
+    assert generation is None

@@ -29,6 +29,11 @@ sur des copies).
 
 Le nombre d'enfants, de mutations et de circuits récents sont des réglages dont les
 valeurs de départ seront réglées par essais.
+
+**Défi** (variante du cahier, voir ``challenge``). Quand un défi est fixé, l'IA garde
+une petite archive des circuits les plus proches de la table cible, et la moitié des
+enfants ont un parent tiré dans cette archive. La récompense ne change pas. Sans défi,
+aucun tirage de plus n'est fait : le déroulement est exactement celui d'avant.
 """
 
 import random
@@ -36,6 +41,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from logicai.challenge import Challenge
 from logicai.circuit import Circuit, NodeKind
 from logicai.cleanup import remove_useless_nodes
 from logicai.errors import InvalidEvolutionSettingsError
@@ -48,6 +54,10 @@ DEFAULT_CHILDREN_PER_GENERATION = 50
 DEFAULT_MIN_MUTATIONS = 1
 DEFAULT_MAX_MUTATIONS = 12
 DEFAULT_RECENT_SIZE = 100
+# Défi (valeurs de départ, mesurées sur un prototype, à régler par essais) : part des
+# enfants dont le parent vient de l'archive, et taille de l'archive.
+CHALLENGE_PARENT_SHARE = 0.5
+CHALLENGE_ARCHIVE_SIZE = 50
 
 
 @dataclass(frozen=True)
@@ -132,11 +142,35 @@ class Evolution:
         self._on_trial = on_trial
         self._recent: deque[Circuit] = deque(maxlen=self._settings.recent_size)
         self._generation = 0
+        self._challenge: Challenge | None = None
+        # Les circuits les plus proches du défi : (proximité, circuit), du plus proche.
+        self._close: list[tuple[int, Circuit]] = []
 
     @property
     def tracker(self) -> RewardTracker:
         """Renvoie l'évaluateur (pour lire les compteurs de réutilisation)."""
         return self._tracker
+
+    @property
+    def library(self) -> Library:
+        """Renvoie la bibliothèque que l'IA fait grandir."""
+        return self._library
+
+    @property
+    def challenge(self) -> Challenge | None:
+        """Renvoie le défi en cours, ou ``None``."""
+        return self._challenge
+
+    @challenge.setter
+    def challenge(self, challenge: Challenge | None) -> None:
+        """Remplace le défi (ou l'enlève) : l'archive repart de zéro."""
+        self._challenge = challenge
+        self._close = []
+
+    @property
+    def best_closeness(self) -> int | None:
+        """Renvoie la meilleure proximité trouvée pour le défi, ou ``None``."""
+        return self._close[0][0] if self._close else None
 
     def parents(self) -> tuple[Circuit, ...]:
         """Renvoie les circuits qui peuvent être choisis comme parents.
@@ -151,7 +185,7 @@ class Evolution:
 
     def propose_child(self) -> Circuit:
         """Choisit un parent au hasard et lui applique plusieurs mutations d'affilée."""
-        child = self._rng.choice(self.parents())
+        child = self._choose_parent()
         count = self._rng.randint(
             self._settings.min_mutations, self._settings.max_mutations
         )
@@ -175,15 +209,32 @@ class Evolution:
             total_reward=sum(r.reward for r in results),
         )
 
+    def _choose_parent(self) -> Circuit:
+        """Tire un parent : dans l'archive du défi une fois sur deux, ou comme avant."""
+        if self._close and self._rng.random() < CHALLENGE_PARENT_SHARE:
+            return self._rng.choice(self._close)[1]
+        return self._rng.choice(self.parents())
+
     def _try_child(self) -> TrialResult:
         """Propose un enfant, l'évalue, et le garde comme récent s'il est accepté."""
         child = self.propose_child()
         result = self._tracker.evaluate(child)
         if result.kind is not TrialKind.REJECTED:
             self._recent.append(remove_useless_nodes(child))
+        if self._challenge is not None:
+            self._remember_if_close(remove_useless_nodes(child), self._challenge)
         if self._on_trial is not None:
             self._on_trial(child, result)
         return result
+
+    def _remember_if_close(self, kept: Circuit, challenge: Challenge) -> None:
+        """Range le circuit dans l'archive s'il a la forme du défi (même refusé)."""
+        closeness = challenge.closeness(kept, self._library.definitions())
+        if closeness is None:
+            return
+        self._close.append((closeness, kept))
+        self._close.sort(key=lambda item: (-item[0], item[1].nand_count()))
+        del self._close[CHALLENGE_ARCHIVE_SIZE:]
 
 
 def _blank_circuit() -> Circuit:

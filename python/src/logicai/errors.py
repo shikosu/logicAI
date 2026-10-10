@@ -117,6 +117,10 @@ class InvalidStageSettingsError(Exception):
     """Les réglages demandés pour les paliers ne sont pas valides."""
 
 
+class InvalidChallengeError(Exception):
+    """Un défi (la table à construire) ou ses réglages ne sont pas valides."""
+
+
 class ProtocolError(Exception):
     """Base des refus liés aux messages échangés avec Unity."""
 

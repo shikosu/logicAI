@@ -269,6 +269,10 @@ class Library:
         """
         return tuple(self._components)
 
+    def has_signature(self, signature: Signature | SequentialSignature) -> bool:
+        """Dit si un composant de la bibliothèque a déjà cette signature."""
+        return signature in self._by_signature
+
     def component(self, name: str) -> Component:
         """Renvoie le composant demandé, ou lève ``UnknownComponentNameError``."""
         try:

@@ -369,10 +369,11 @@ def test_an_input_that_only_acts_later_is_not_unused() -> None:
     assert find_behavior_rejections(_gated_latch(), {}) == ()
 
 
-def test_an_output_that_copies_an_input_is_rejected() -> None:
-    # Cahier, filtre « une sortie recopie simplement une entrée ».
-    circuit, s_bar, _, q, q_bar = _latch_core()
-    _add_outputs(circuit, q, q_bar, s_bar)
+@pytest.mark.parametrize("copied", ["S", "R"])
+def test_an_output_that_copies_an_input_is_rejected(copied: str) -> None:
+    # Cahier, filtre « une sortie recopie simplement une entrée » : n'importe laquelle.
+    circuit, s_bar, r_bar, q, q_bar = _latch_core()
+    _add_outputs(circuit, q, q_bar, s_bar if copied == "S" else r_bar)
     assert find_behavior_rejections(circuit, {}) == (Rejection.COPIED_INPUT,)
 
 
@@ -464,8 +465,9 @@ def test_a_record_keeps_the_pin_order_of_the_stored_component() -> None:
 
 
 def test_an_oscillating_circuit_is_refused_by_the_library() -> None:
+    # Le refus vient de la batterie (le message le dit), pas de la table de vérité.
     library = Library()
-    with pytest.raises(UnstableCircuitError):
+    with pytest.raises(UnstableCircuitError, match="batterie"):
         library.register(_oscillator_with_an_input())
     assert library.names() == ()
 
