@@ -33,7 +33,7 @@ from logicai.evolution import Evolution, EvolutionSettings
 from logicai.library import Library
 from logicai.live_director import LiveDirector
 from logicai.live_server import DEFAULT_PORT, LiveServer
-from logicai.live_show import trial_messages
+from logicai.live_show import shown_nand_count, trial_messages
 from logicai.protocol import discovery_message, stats_message
 from logicai.replay import placement_order
 from logicai.reward import RewardSettings, TrialKind, TrialResult
@@ -42,6 +42,11 @@ from logicai.stages import DEFAULT_STALLED_GENERATIONS, STAGES, Curriculum, Stag
 # Codes de sortie de la commande.
 EXIT_OK = 0
 EXIT_CANNOT_LISTEN = 2
+
+# Un essai ordinaire (qui n'apporte rien) n'est montré que s'il n'a pas plus de 1,5 fois
+# les NAND de la meilleure version connue de sa fonction : choix de Téo, pour ne pas
+# montrer des circuits énormes. Les découvertes, elles, sont toujours montrées.
+SHOWN_SIZE_FACTOR = 1.5
 
 _log = logging.getLogger(__name__)
 
@@ -106,15 +111,36 @@ class LiveSession:
     # --- Le crochet appelé après chaque essai (fil d'entraînement) ----------
 
     def _on_trial(self, circuit: Circuit, result: TrialResult) -> None:
-        """Annonce une découverte, ou montre un essai accepté si le directeur veut."""
+        """Annonce et montre une découverte ; sinon montre un petit essai si on le veut.
+
+        Une découverte (nouveauté ou record) est annoncée puis montrée tout de suite, si
+        aucune autre découverte n'est en cours d'affichage. Un essai qui n'apporte rien
+        n'est préparé que si le directeur le demande, et seulement s'il est assez petit.
+        """
         try:
             if result.kind in (TrialKind.NEW, TrialKind.RECORD):
                 self._announce(result)
-            elif result.kind is not TrialKind.REJECTED and self._director.wants_trial():
-                messages = trial_messages(circuit, self._library.definitions())
-                self._director.offer_trial(messages)
+                self._show_discovery(circuit)
+            elif result.kind is TrialKind.NOTHING and self._director.wants_trial():
+                self._show_if_small(circuit, result)
         except Exception:
             _log.exception("Échec de la préparation de l'affichage (ignoré).")
+
+    def _show_discovery(self, circuit: Circuit) -> None:
+        """Montre l'essai qui vient de faire une découverte, en priorité."""
+        if self._director.wants_priority_trial():
+            messages = trial_messages(circuit, self._library.definitions())
+            self._director.offer_trial(messages, priority=True)
+
+    def _show_if_small(self, circuit: Circuit, result: TrialResult) -> None:
+        """Montre un essai sans apport, sauf s'il est trop gros (voir la constante)."""
+        if result.name is None:  # (impossible pour un essai sans apport ; rassure mypy)
+            return
+        definitions = self._library.definitions()
+        best = self._library.cost(result.name)
+        if shown_nand_count(circuit, definitions) > SHOWN_SIZE_FACTOR * best:
+            return
+        self._director.offer_trial(trial_messages(circuit, definitions))
 
     def _announce(self, result: TrialResult) -> None:
         """Construit et annonce le message d'une nouveauté ou d'un record."""

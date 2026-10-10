@@ -15,7 +15,8 @@ from typing import Any
 import pytest
 
 import logicai.live as live_module
-from logicai.circuit import Circuit
+from builders import add_not, bloated, build_xor, gate, wire, xor_circuit
+from logicai.circuit import Circuit, NodeKind
 from logicai.cleanup import remove_useless_nodes
 from logicai.filters import find_rejections
 from logicai.live import EXIT_CANNOT_LISTEN, EXIT_OK, LiveSession, main
@@ -30,7 +31,7 @@ from logicai.protocol import (
     stats_message,
 )
 from logicai.replay import circuit_from_placement
-from logicai.reward import TrialKind
+from logicai.reward import TrialKind, TrialResult
 from logicai.serialization import circuit_from_dict
 
 Message = dict[str, Any]
@@ -266,6 +267,153 @@ def test_display_work_is_done_only_when_the_director_asks(
     for _ in range(20):
         session.step()
     assert len(shown) == 1
+
+
+# --- Découvertes d'abord, et seulement des essais ordinaires assez petits ----
+
+
+def test_the_first_discovery_is_announced_then_shown_live() -> None:
+    # Règle (choix de Téo : « découvertes d'abord ») : la découverte de NOT est annoncée
+    # puis montrée en direct : c'est le premier essai que voit l'écran.
+    sent: list[Message] = []
+    session, director = _session(sent)
+    for _ in range(30):
+        session.step()
+        if "NOT" in session.library.names():
+            break
+    assert "NOT" in session.library.names()
+    for _ in range(60):
+        director.pump()
+    kinds = [m["message"] for m in sent]
+    assert kinds.index(DISCOVERY_MESSAGE) < kinds.index(CIRCUIT_MESSAGE)
+    first = next(m for m in sent if m["message"] == CIRCUIT_MESSAGE)
+    _, shown = circuit_from_dict(first["circuit"])
+    assert (len(shown.inputs()), len(shown.outputs()), shown.nand_count()) == (1, 1, 1)
+
+
+def test_a_discovery_is_shown_even_during_the_pause_between_trials() -> None:
+    # Règle : une découverte n'attend pas la pause entre deux essais. Avec une pause
+    # énorme (sans que l'horloge avance), un seul essai ordinaire pourrait passer ; ici
+    # chaque découverte, finie d'afficher avant la suivante, est montrée une fois.
+    sent: list[Message] = []
+    session, director = _session(sent, trial_interval=1000.0)
+    for _ in range(60):
+        session.step()
+        for _ in range(40):
+            director.pump()
+    circuits = _of_kind(sent, CIRCUIT_MESSAGE)
+    discoveries = _of_kind(sent, DISCOVERY_MESSAGE)
+    assert len(discoveries) >= 3
+    assert len(circuits) == len(discoveries)
+
+
+def _hook_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[LiveSession, LiveDirector, list[Circuit]]:
+    """Une session dont la bibliothèque connaît le XOR (4 NAND), et un espion."""
+    shown = _record_shown_trials(monkeypatch)
+    session, director = _session([])
+    session.library.register(xor_circuit())
+    return session, director, shown
+
+
+def _nothing(name: str | None) -> TrialResult:
+    """Un essai accepté qui n'apporte rien : la fonction ``name`` est déjà connue."""
+    return TrialResult(TrialKind.NOTHING, 0.0, name)
+
+
+def test_an_ordinary_trial_of_the_best_size_is_shown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, _, shown = _hook_session(monkeypatch)
+    session._on_trial(xor_circuit(), _nothing("XOR"))
+    assert len(shown) == 1
+
+
+def test_an_ordinary_trial_of_one_and_a_half_times_the_best_size_is_shown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle (choix de Téo) : jusqu'à 1,5 fois les NAND de la meilleure version connue :
+    # le XOR coûte 4, donc 6 NAND passent (la limite elle-même est acceptée).
+    session, _, shown = _hook_session(monkeypatch)
+    six_nand = gate(2, bloated(build_xor))
+    assert six_nand.nand_count() == 6
+    session._on_trial(six_nand, _nothing("XOR"))
+    assert len(shown) == 1
+
+
+def test_an_ordinary_trial_bigger_than_that_is_not_shown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle : au-delà de 1,5 fois (8 NAND pour un XOR de 4), l'essai n'est pas montré ;
+    # le directeur reste preneur : un autre essai pourra l'être.
+    session, director, shown = _hook_session(monkeypatch)
+    eight_nand = gate(2, bloated(bloated(build_xor)))
+    assert eight_nand.nand_count() == 8
+    session._on_trial(eight_nand, _nothing("XOR"))
+    assert not shown
+    assert director.wants_trial()
+
+
+def test_the_size_is_the_one_shown_not_the_one_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle : l'écran montre le circuit nettoyé ; c'est sa taille qui compte. Un XOR
+    # suivi de 4 NAND qui n'influencent aucune sortie a 8 NAND essayées, 4 montrées.
+    def xor_with_dead_end(circuit: Circuit, inputs: list[int]) -> int:
+        out = build_xor(circuit, inputs)
+        add_not(circuit, add_not(circuit, add_not(circuit, add_not(circuit, out))))
+        return out
+
+    session, _, shown = _hook_session(monkeypatch)
+    tried = gate(2, xor_with_dead_end)
+    assert tried.nand_count() == 8
+    session._on_trial(tried, _nothing("XOR"))
+    assert len(shown) == 1
+
+
+def _xor_component_then_nots(library_session: LiveSession, extra_nots: int) -> Circuit:
+    """Le composant XOR de la bibliothèque, suivi de ``extra_nots`` NOT en série."""
+    circuit = Circuit()
+    a, b = circuit.add_node(NodeKind.INPUT), circuit.add_node(NodeKind.INPUT)
+    node = library_session.library.instantiate(circuit, "XOR")
+    wire(circuit, a, node, 0)
+    wire(circuit, b, node, 1)
+    for _ in range(extra_nots):
+        node = add_not(circuit, node)
+    wire(circuit, node, circuit.add_node(NodeKind.OUTPUT))
+    return circuit
+
+
+def test_a_component_is_counted_by_the_nand_it_contains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Règle : un composant compte pour ses NAND (l'écran montre le circuit aplati) :
+    # le XOR (4) plus 2 NOT font 6 et passent ; plus 4 NOT font 8 et ne passent pas,
+    # alors que le circuit essayé ne contient que 4 NAND « visibles ».
+    session, _, shown = _hook_session(monkeypatch)
+    session._on_trial(_xor_component_then_nots(session, 2), _nothing("XOR"))
+    assert len(shown) == 1
+    session._on_trial(_xor_component_then_nots(session, 4), _nothing("XOR"))
+    assert len(shown) == 1
+
+
+def test_an_ordinary_trial_without_a_known_name_is_ignored(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Règle : ignoré proprement, pas par une erreur avalée et journalisée.
+    session, _, shown = _hook_session(monkeypatch)
+    with caplog.at_level(logging.ERROR, logger="logicai.live"):
+        session._on_trial(xor_circuit(), _nothing(None))
+    assert not shown
+    assert not caplog.records
+
+
+def test_a_rejected_trial_is_never_shown(monkeypatch: pytest.MonkeyPatch) -> None:
+    session, director, shown = _hook_session(monkeypatch)
+    assert director.wants_trial()
+    session._on_trial(xor_circuit(), TrialResult(TrialKind.REJECTED, 0.0, None))
+    assert not shown
 
 
 def test_display_errors_never_break_the_training(
