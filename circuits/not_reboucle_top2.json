@@ -1,0 +1,62 @@
+{
+  "nom": "not_reboucle_top2",
+  "noeuds": [
+    {
+      "id": 0,
+      "type": "NAND",
+      "x": 2,
+      "y": 0
+    },
+    {
+      "id": 1,
+      "type": "SORTIE",
+      "x": 4,
+      "y": 0
+    }
+  ],
+  "cables": [
+    {
+      "de": [
+        0,
+        0
+      ],
+      "vers": [
+        0,
+        0
+      ]
+    },
+    {
+      "de": [
+        0,
+        0
+      ],
+      "vers": [
+        0,
+        1
+      ]
+    },
+    {
+      "de": [
+        0,
+        0
+      ],
+      "vers": [
+        1,
+        0
+      ]
+    }
+  ],
+  "etat": {
+    "top": 2,
+    "stable": false,
+    "noeuds": [
+      0,
+      0
+    ],
+    "cables": [
+      0,
+      0,
+      0
+    ]
+  }
+}

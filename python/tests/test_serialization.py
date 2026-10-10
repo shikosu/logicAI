@@ -56,11 +56,9 @@ def _circuit_with_gaps_and_a_component() -> Circuit:
 
 def test_not_circuit_is_written_like_the_cahiers_example() -> None:
     # Règle vérifiée : cahier, « Exemple de circuit en JSON » (mêmes clés, mêmes types
-    # ENTREE / NAND / SORTIE, mêmes câbles), sans les positions x et y.
-    expected = copy.deepcopy(CAHIER_EXAMPLE)
-    for node in expected["noeuds"]:
-        del node["x"], node["y"]
-    assert circuit_to_dict("NOT", not_circuit()) == expected
+    # ENTREE / NAND / SORTIE, mêmes câbles, mêmes positions x et y). Depuis la phase 3,
+    # Python calcule les positions : l'exemple du cahier est reproduit exactement.
+    assert circuit_to_dict("NOT", not_circuit()) == CAHIER_EXAMPLE
 
 
 def test_component_node_carries_its_name_and_pin_counts() -> None:
@@ -70,6 +68,8 @@ def test_component_node_carries_its_name_and_pin_counts() -> None:
     assert written["noeuds"][1] == {
         "id": 2,
         "type": "COMPOSANT",
+        "x": 2,
+        "y": 0,
         "ref": "XOR",
         "entrees": 2,
         "sorties": 1,

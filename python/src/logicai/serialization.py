@@ -5,9 +5,9 @@ Un NOT fait d'une seule NAND dont les deux entrées sont alimentées par A :
     {
       "nom": "NOT",
       "noeuds": [
-        {"id": 0, "type": "ENTREE"},
-        {"id": 1, "type": "NAND"},
-        {"id": 2, "type": "SORTIE"}
+        {"id": 0, "type": "ENTREE", "x": 0, "y": 0},
+        {"id": 1, "type": "NAND", "x": 2, "y": 0},
+        {"id": 2, "type": "SORTIE", "x": 4, "y": 0}
       ],
       "cables": [
         {"de": [0, 0], "vers": [1, 0]},
@@ -17,13 +17,19 @@ Un NOT fait d'une seule NAND dont les deux entrées sont alimentées par A :
     }
 
 ``[1, 0]`` se lit « nœud 1, broche 0 » ; pour ``de`` c'est une broche source, pour
-``vers`` une broche puits. Deux ajouts au format du cahier :
+``vers`` une broche puits. ``x`` et ``y`` sont calculés par Python (module ``layout``) :
+Unity ne fait que dessiner. Ils sont écrits partout, et ignorés à la lecture.
+
+Deux ajouts au format du cahier :
 
 - un composant posé dans un circuit s'écrit
-  ``{"id": 3, "type": "COMPOSANT", "ref": "XOR", "entrees": 2, "sorties": 1}`` ; on y
-  met ses nombres de broches pour que le fichier se suffise à lui-même ;
-- les clés ``x`` et ``y`` de l'exemple du cahier sont acceptées à la lecture et ignorées
-  (le modèle Python n'a pas de positions) ; elles ne sont jamais écrites.
+  ``{"id": 3, "type": "COMPOSANT", "x": 2, "y": 0, "ref": "XOR", "entrees": 2,
+  "sorties": 1}`` ; on y met ses nombres de broches pour que le fichier se suffise ;
+- une clé facultative ``etat`` donne les valeurs 0/1 du circuit à un top, pour que Unity
+  colore les câbles (voir le module ``snapshot``) :
+  ``"etat": {"top": 3, "stable": true, "noeuds": [0, 1, 1], "cables": [0, 0, 1]}``.
+  Les listes suivent l'ordre de ``noeuds`` et de ``cables`` du fichier. Elle est
+  ignorée à la lecture : c'est une photo pour l'affichage, pas une partie du circuit.
 """
 
 import json
@@ -32,7 +38,9 @@ from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from logicai.circuit import Circuit, Node, NodeKind, Pin, Wire
-from logicai.errors import CircuitError, LibraryFormatError
+from logicai.errors import CircuitError, LibraryFormatError, SnapshotError
+from logicai.layout import Position, compute_layout
+from logicai.snapshot import Snapshot
 
 _TYPE_OF_KIND: dict[NodeKind, str] = {
     NodeKind.INPUT: "ENTREE",
@@ -53,11 +61,20 @@ _NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 _PIN_LENGTH = 2
 
 
-def circuit_to_dict(name: str, circuit: Circuit) -> dict[str, Any]:
-    """Écrit un circuit sous la forme d'un dictionnaire prêt pour ``json.dumps``."""
-    return {
+def circuit_to_dict(
+    name: str, circuit: Circuit, snapshot: Snapshot | None = None
+) -> dict[str, Any]:
+    """Écrit un circuit sous la forme d'un dictionnaire prêt pour ``json.dumps``.
+
+    Les positions ``x`` et ``y`` sont toujours écrites. Avec un relevé de valeurs
+    (``snapshot``), une clé ``etat`` est ajoutée ; il doit venir de ce circuit.
+    """
+    layout = compute_layout(circuit)
+    result: dict[str, Any] = {
         "nom": name,
-        "noeuds": [_node_to_dict(node) for node in circuit.nodes()],
+        "noeuds": [
+            _node_to_dict(node, layout[node.node_id]) for node in circuit.nodes()
+        ],
         "cables": [
             {
                 "de": [wire.source.node_id, wire.source.index],
@@ -66,13 +83,17 @@ def circuit_to_dict(name: str, circuit: Circuit) -> dict[str, Any]:
             for wire in circuit.wires()
         ],
     }
+    if snapshot is not None:
+        result["etat"] = _state_to_dict(circuit, snapshot)
+    return result
 
 
-def circuit_to_json(name: str, circuit: Circuit) -> str:
+def circuit_to_json(
+    name: str, circuit: Circuit, snapshot: Snapshot | None = None
+) -> str:
     """Écrit un circuit en texte JSON lisible (terminé par un retour à la ligne)."""
-    return (
-        json.dumps(circuit_to_dict(name, circuit), indent=2, ensure_ascii=False) + "\n"
-    )
+    data = circuit_to_dict(name, circuit, snapshot)
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def circuit_from_json(text: str) -> tuple[str, Circuit]:
@@ -100,14 +121,39 @@ def circuit_from_dict(data: object) -> tuple[str, Circuit]:
 # --- Écriture --------------------------------------------------------------------
 
 
-def _node_to_dict(node: Node) -> dict[str, Any]:
+def _node_to_dict(node: Node, position: Position) -> dict[str, Any]:
     """Écrit un nœud ; un composant porte son nom de définition et ses broches."""
-    result: dict[str, Any] = {"id": node.node_id, "type": _TYPE_OF_KIND[node.kind]}
+    result: dict[str, Any] = {
+        "id": node.node_id,
+        "type": _TYPE_OF_KIND[node.kind],
+        "x": position.x,
+        "y": position.y,
+    }
     if node.kind is NodeKind.COMPONENT:
         result["ref"] = node.component_ref
         result["entrees"] = node.sink_count
         result["sorties"] = node.source_count
     return result
+
+
+def _state_to_dict(circuit: Circuit, snapshot: Snapshot) -> dict[str, Any]:
+    """Écrit un relevé de valeurs, après avoir vérifié qu'il correspond au circuit."""
+    node_count, wire_count = len(circuit.nodes()), len(circuit.wires())
+    if (len(snapshot.node_values), len(snapshot.wire_values)) != (
+        node_count,
+        wire_count,
+    ):
+        raise SnapshotError(
+            f"Le relevé a {len(snapshot.node_values)} valeurs de nœuds et "
+            f"{len(snapshot.wire_values)} valeurs de câbles, mais le circuit a "
+            f"{node_count} nœuds et {wire_count} câbles."
+        )
+    return {
+        "top": snapshot.top,
+        "stable": snapshot.stable,
+        "noeuds": list(snapshot.node_values),
+        "cables": list(snapshot.wire_values),
+    }
 
 
 # --- Lecture ---------------------------------------------------------------------

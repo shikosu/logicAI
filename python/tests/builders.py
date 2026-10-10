@@ -1,5 +1,6 @@
-"""Constructeurs de petits circuits, partagés par les tests de la phase 2."""
+"""Constructeurs de petits circuits, partagés par les tests."""
 
+import random
 from collections.abc import Callable
 
 from logicai.circuit import Circuit, NodeKind, Pin
@@ -151,4 +152,23 @@ def sr_latch() -> Circuit:
     wire(circuit, nand_q, nand_q_bar, 1)
     wire(circuit, nand_q, circuit.add_node(NodeKind.OUTPUT))
     wire(circuit, nand_q_bar, circuit.add_node(NodeKind.OUTPUT))
+    return circuit
+
+
+def random_circuit(rng: random.Random) -> Circuit:
+    """Un circuit au hasard, avec des boucles, des fan-out et des câbles manquants."""
+    circuit = Circuit()
+    inputs = [circuit.add_node(NodeKind.INPUT) for _ in range(rng.randint(0, 4))]
+    nands = [circuit.add_node(NodeKind.NAND) for _ in range(rng.randint(0, 12))]
+    outputs = [circuit.add_node(NodeKind.OUTPUT) for _ in range(rng.randint(0, 4))]
+    sources = inputs + nands
+    if not sources:
+        return circuit
+    for nand_id in nands:
+        for sink_index in (0, 1):
+            if rng.random() < 0.85:
+                circuit.connect(Pin(rng.choice(sources), 0), Pin(nand_id, sink_index))
+    for output_id in outputs:
+        if rng.random() < 0.9:
+            circuit.connect(Pin(rng.choice(sources), 0), Pin(output_id, 0))
     return circuit

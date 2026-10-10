@@ -69,6 +69,10 @@ class SignatureError(Exception):
     """La signature ne peut pas être calculée avec ces données."""
 
 
+class SnapshotError(Exception):
+    """Les valeurs d'un circuit ne peuvent pas être relevées avec ces données."""
+
+
 class LibraryError(Exception):
     """Base des refus de la bibliothèque de composants."""
 

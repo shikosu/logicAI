@@ -77,7 +77,8 @@ def test_save_writes_one_json_file_per_component(tmp_path: Path) -> None:
 
 
 def test_saved_not_matches_the_cahiers_example(tmp_path: Path) -> None:
-    # Règle vérifiée : cahier, « Exemple de circuit en JSON ».
+    # Règle vérifiée : cahier, « Exemple de circuit en JSON », avec les positions x et y
+    # (calculées par Python depuis la phase 3).
     library = Library()
     library.register(not_circuit())
     library.save(tmp_path)
@@ -85,9 +86,9 @@ def test_saved_not_matches_the_cahiers_example(tmp_path: Path) -> None:
     assert written == {
         "nom": "NOT",
         "noeuds": [
-            {"id": 0, "type": "ENTREE"},
-            {"id": 1, "type": "NAND"},
-            {"id": 2, "type": "SORTIE"},
+            {"id": 0, "type": "ENTREE", "x": 0, "y": 0},
+            {"id": 1, "type": "NAND", "x": 2, "y": 0},
+            {"id": 2, "type": "SORTIE", "x": 4, "y": 0},
         ],
         "cables": [
             {"de": [0, 0], "vers": [1, 0]},
