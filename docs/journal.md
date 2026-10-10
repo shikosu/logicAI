@@ -4,6 +4,59 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 10 octobre 2026 — Session 4 : phase 4 (IA évolutionnaire), en cours
+
+### Plan validé par Téo (« OK avec tes recommandations »)
+
+Étapes : (1) filtres, (2) mutations, (3) récompense, (4) boucle d'évolution, (5) paliers, (6) test de la phase. Pas de NumPy (aucune bibliothèque ajoutée).
+Réponses de Téo, toutes prises comme recommandées :
+
+| # | Question | Décision |
+| --- | --- | --- |
+| Q1 | Choix des parents (récompense unique par signature) | Le plus petit circuit par signature trouvée (idée de MAP-Elites), plus quelques circuits récents |
+| Q2 | Score d'un circuit ni nouveau ni plus petit | 0 ; la pénalité k·N_NAND ne s'applique que sur une nouveauté ou un record ; un circuit rejeté vaut 0 |
+| Q3 | Réutilisation | Bonus ajouté au score de la nouvelle découverte + compteur de réutilisations par composant ; pas d'effet sur la fréquence de choix |
+| Q4 | Entrées et sorties aux paliers 1 à 3 | Une seule sortie : « ajouter une sortie » interdit ; « ajouter une entrée » s'arrête au maximum du palier |
+| Q5 | Boucles en phase 4 | Les mutations des paliers 1 à 3 ne créent pas de boucle (la règle de câblage ne change pas) |
+
+La branche est repartie de `main` après la fusion de la PR n°1 (avance rapide, rien perdu).
+
+### Étape 1 faite : filtres anti-triche (`filters.py`, `tests/test_filters.py`)
+
+- `find_rejections(circuit, definitions)` aplatit le circuit, calcule sa table de vérité, puis renvoie les motifs de rejet (tuple vide = accepté).
+  `rejections_of_table(table, input_count)` fait la même chose sur une table. Les 5 filtres du cahier sont des motifs de l'énumération `Rejection`.
+- Les filtres jugent le **comportement** (table de vérité), pas le câblage. Un circuit instable n'a que le motif `UNSTABLE` (sa table n'est pas significative).
+- Un circuit invalide (composant inconnu...) lève l'erreur d'aplatissement au lieu d'être « rejeté ».
+- `Library.register` lève `UnstableCircuitError` pour un circuit instable : l'évolution devra donc passer par les filtres **avant** l'enregistrement.
+
+Preuves :
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `31 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 14 source files` |
+| `pytest` | `477 passed` (439 avant, 38 nouveaux) |
+| Mutations (copie hors du projet) | 14 erreurs volontaires dans `filters.py`, 14 détectées, 0 survivante |
+
+Deux tests vérifient des chiffres du cahier : sur toutes les fonctions à 1 sortie, il en reste **1, 10 et 218** après les filtres (tableau des paliers) ;
+et toutes les petites tables (jusqu'à 3 entrées à 1 sortie, 2 entrées à 2 sorties) sont comparées à un calcul indépendant, combinaison par combinaison.
+
+Erreur de ma part, trouvée et corrigée : un test aléatoire demandait des entiers de 2³² bits (mauvais argument de `getrandbits`) et bloquait ; le module n'était pas en cause.
+
+### Environnement de cette session
+
+Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).
+L'état de départ était le même que dans le journal (439 tests). Python 3.11 : toujours pas vérifié par exécution.
+
+### Ce qui reste (phase 4)
+
+Étapes 2 à 6 (mutations, récompense, boucle d'évolution, paliers, test de la phase). Aucune n'est commencée.
+Toujours ouverts : interprétation de la CLK (phase 6), poids de la récompense et valeur de N (par essais).
+Rappel : reporter dans le document en ligne les modifications du cahier (voir `docs/modifications_cahier_proposees.md`, points 1 à 9).
+
+---
+
 ## 10 octobre 2026 — Mise à jour de la copie locale du cahier
 
 ### Ce qui est fait
