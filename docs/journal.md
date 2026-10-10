@@ -179,8 +179,9 @@ une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolutio
 
 ### Étape 6 EN COURS : poids des mutations, test de la phase pas encore écrit
 
-**État du dépôt à ce commit : 1 test échoue (`tests/test_evolution.py::test_records_are_discoveries_but_not_novelties`), en attente de la décision de Téo.**
-Les 4 contrôles complets n'ont donc pas tous réussi à ce commit ; ce n'est pas une étape validée.
+**État du dépôt (mis à jour au commit du test de la phase) : la suite est verte** (hors mutations et journal définitif, encore à faire). Le test qui échouait juste après le
+changement des poids (`test_records_are_discoveries_but_not_novelties`) a reçu une nouvelle graine (4 -> 3, seul changement, assertion identique), avec l'accord de Téo (« tu peux continuer »
+après ma proposition) : avec les poids, la graine 4 ne produit plus de record, les graines 3 et 6 en produisent.
 
 Décisions de Téo (réponses du 10 octobre 2026) :
 
@@ -205,11 +206,13 @@ NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confi
 Avec l'ancien algorithme, les portes trouvées l'étaient presque toujours à leur taille minimale : le blocage était la **découverte** de NOR, XOR et XNOR. Avec les poids, la découverte
 n'est plus le blocage ; ce sont les dernières réductions de taille (un XOR resté à 5 NAND, par exemple).
 
-**Test à trancher** : `test_records_are_discoveries_but_not_novelties` utilise « la graine 4 produit un record dans les 20 premières générations du palier 2 ». Avec le nouvel algorithme, cette
-graine n'en produit plus. La règle vérifiée (un record est une découverte mais pas une nouveauté) reste vraie ; seule la mise en place dépend de la graine. Je ne l'ai pas modifié
-(règle : jamais de modification d'un test sans l'accord de Téo). Proposition : chercher une graine qui produit un record, ou rendre le test indépendant de la graine.
+**Résultat de la recherche de graines (réglages réels, flux du test : palier 1 jusqu'à NOT, puis palier 2, 16 graines, 2500 générations) : 4 graines sur 16 réussissent le critère
+« cahier à la lettre »** (graines 1, 10, 11, 12, aux générations 285, 1435, 755, 210). Dans presque tous les échecs, les 8 portes sont trouvées mais **le XOR reste à 5 ou 6 NAND**
+au lieu de 4 : réduire un circuit déjà trouvé est l'étape qui bloque. Le test de la phase (`tests/test_phase4.py`) utilise les graines 1, 12 et 11 : il prouve que l'IA *peut* le faire de façon
+reproductible, pas qu'elle le fait à coup sûr. Cet écart avec mon essai précédent (5 graines sur 8 à « tout au minimum » en 3000 générations) n'est pas expliqué ; les deux échantillons sont petits
+et les déroulements diffèrent, donc je ne les additionne pas.
 
-À faire : recherche de graines (en cours, 16 graines, 2500 générations) ; écrire `tests/test_phase4.py` ; mutations ; 4 contrôles ; journal définitif.
+À faire : essai sur le nombre de mutations par enfant (en cours) ; mutations ; 4 contrôles ; journal définitif.
 
 ### Environnement de cette session
 
