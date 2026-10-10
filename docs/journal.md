@@ -216,9 +216,35 @@ Les `.meta` des 5 nouveaux fichiers seront créés par l'Unity de Téo à la pre
 de Téo ne contenait pas encore mes commits (le script copie `Assets/` depuis le dossier où il est lancé). Je n'ai donc rien conclu de ce résultat. Après avoir récupéré la branche : `total: 99` (65 + 34), 99 réussis, 0 échec, 0 ignoré.
 Le C# compile donc, et mes paris sur `JsonUtility` (dont « `3` lu comme un `float` ») sont confirmés. Leçon à garder : toujours comparer le **total** au compte attendu, pas seulement « 0 échec ».
 
+### Étape 8 écrite : connexion à Python en C# (**NON compilée, NON testée : à vérifier par Téo**)
+
+Fichiers (aucun `.meta` créé) :
+
+- `Assets/Scripts/Runtime/LiveConnection.cs` : un fil d'arrière-plan se connecte à `127.0.0.1:8765` (port par défaut de `python -m logicai.live`), lit le socket et dépose chaque ligne dans une `ConcurrentQueue<string>` ;
+  le fil principal les prend avec `TryDequeue` (dans `Update`, à l'étape 9) : la scène ne se modifie que depuis lui. Si Python n'est pas là ou s'arrête : nouvel essai toutes les secondes. `Start()` / `Stop()` / `Dispose()`,
+  `IsConnected`, `LastError` (pour afficher « Python ne répond pas »). Les lignes sont rendues brutes ; `LiveMessageParser` (étape 7) les lit.
+- `Assets/Tests/EditMode/LiveConnectionTests.cs` : 18 tests, avec un `TcpListener` local qui joue Python. Ils n'utilisent **jamais** le port 8765 (un vrai `python -m logicai.live` lancé en même temps ne doit pas être dérangé) et
+  attendent les événements avec une échéance de 5 s plutôt qu'une pause fixe.
+
+Choix de conception :
+
+- **`Socket` direct, pas `TcpClient`** : après `TcpClient.Close()`, sa propriété `Client` peut valoir `null` selon l'environnement d'exécution ; si `Stop()` tombait entre la connexion et la lecture, le fil aurait planté.
+  Défaut vu en relisant mon propre code, avant tout test.
+- **Pas de lecture bloquante** : le comportement d'une lecture bloquée quand un autre fil ferme la socket varie selon l'environnement d'exécution (et je ne peux pas le tester ici). Le fil attend les données par tranches de 100 ms
+  (`Poll`) et revérifie à chaque tour s'il doit s'arrêter : `Stop()` est donc prévisible (testé : moins d'une seconde, même pendant l'attente entre deux essais de 10 s).
+- **Découpage sur les octets** : on coupe sur `\n` dans les octets reçus, puis on décode la ligne entière en UTF-8 (un « é » coupé entre deux paquets est donc bien décodé ; testé en envoyant les deux octets séparément).
+- **Taille maximale d'une ligne** (4 Mio par défaut, réglable) : une ligne plus longue n'est jamais livrée, même en partie ; la connexion est coupée puis rétablie. Testé à la limite exacte (100 octets acceptés, 101 refusés).
+- Lignes vides ignorées. Aucune écriture vers Python (le message `action` est de la phase 7).
+
+Règle d'hygiène apprise à l'étape 7 : **comparer le total de tests au compte attendu**. Attendu après l'étape 8 : **99 + 18 = 117**.
+
+Ce que j'ai vérifié ici : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python n'a pas changé depuis les derniers contrôles verts (875 tests). **Ce que je n'ai pas pu vérifier : que le C# compile et que les 18 tests passent.**
+Paris restants (comportements du réseau que je n'ai pu essayer ici) : sur macOS, `Poll` + `Available == 0` du côté « Python » des tests détecte bien la fermeture par Unity ; un port libéré peut être relié aussitôt (test `ServerStartedAfterUnity_IsJoinedAutomatically`).
+Si l'un de ces tests échoue, je regarde d'abord si c'est le test ou la connexion qui est en tort.
+
 ### Ce qui reste
 
-- Étape 8 : `LiveConnection.cs` (connexion TCP en fil séparé, reconnexion automatique, file lue dans `Update`).
+- **Étape 8 : preuve de Téo** (`tools/run_unity_tests.sh EditMode`, total attendu 117).
 - Étape 9 : interface (bibliothèque des découvertes, statistiques, bascule direct / rediffusion, rediffusion locale).
 - La phase 5 ne sera jugée terminée qu'après la vérification visuelle de Téo dans Unity.
 
