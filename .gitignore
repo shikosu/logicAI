@@ -1,0 +1,33 @@
+# --- Unity : dossiers générés (Unity les recrée tout seul) ---
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# --- Unity : fichiers de solution générés pour l'éditeur de code ---
+*.csproj
+*.sln
+*.slnx
+.vs/
+.vscode/
+.idea/
+
+# --- Python ---
+python/.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# --- macOS ---
+.DS_Store
+
+# --- Doublon du cahier des charges (la référence est docs/cahier_des_charges.md) ---
+/logicAI — Cahier des charges.md

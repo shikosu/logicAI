@@ -1,0 +1,47 @@
+[project]
+name = "logicai"
+version = "0.1.0"
+description = "Simulateur logique et IA qui découvre des circuits à partir de la seule porte NAND."
+requires-python = ">=3.11"
+
+# --- pytest : les tests trouvent le paquet dans src/ sans installation ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# --- ruff : lint et formatage ---
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",       # pycodestyle : erreurs
+    "W",       # pycodestyle : avertissements
+    "F",       # pyflakes
+    "I",       # isort : ordre des imports
+    "B",       # bugbear : pièges courants
+    "UP",      # pyupgrade : syntaxe moderne
+    "N",       # pep8-naming : noms
+    "SIM",     # simplifications
+    "ANN",     # annotations de type partout
+    "D",       # docstrings pour chaque module, classe et fonction publique
+    "T20",     # interdit print dans le paquet
+    "PLR2004", # interdit les nombres magiques dans les comparaisons
+    "C90",     # complexité : fonctions courtes
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+# Les tests ont des noms explicites et un commentaire qui cite la règle vérifiée ;
+# leurs valeurs attendues (0b0111...) sont voulues, ce ne sont pas des nombres magiques.
+"tests/**" = ["D103", "PLR2004"]
+
+# --- mypy : mode strict sur src/ ---
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+files = ["src"]
