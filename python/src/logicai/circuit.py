@@ -5,11 +5,13 @@ câble (cahier des charges, « Règles du monde logique »). Ce module ne simule
 rien : il garde la structure du circuit et refuse les actions interdites.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import NamedTuple
+from typing import NamedTuple, Self
 
 from logicai.errors import (
+    InvalidNodeError,
     SinkAlreadyConnectedError,
     SinkNotConnectedError,
     UnknownNodeError,
@@ -19,11 +21,14 @@ from logicai.errors import (
 
 
 class NodeKind(Enum):
-    """Type d'un nœud. D'autres types (composant, CLK) viendront plus tard."""
+    """Type d'un nœud. La CLK viendra plus tard."""
 
     INPUT = auto()
     OUTPUT = auto()
     NAND = auto()
+    # Un composant est une boîte noire posée par référence : ses broches dépendent
+    # de sa définition, donc elles ne sont pas dans le tableau ``_PIN_COUNTS``.
+    COMPONENT = auto()
 
 
 class PinKind(Enum):
@@ -56,7 +61,7 @@ class _PinCounts(NamedTuple):
     sources: int
 
 
-# Tableau de la spécification, section A : (puits, sources) de chaque type.
+# Tableau de la spécification, section A : (puits, sources) de chaque type fixe.
 _PIN_COUNTS: dict[NodeKind, _PinCounts] = {
     NodeKind.INPUT: _PinCounts(sinks=0, sources=1),
     NodeKind.OUTPUT: _PinCounts(sinks=1, sources=0),
@@ -71,12 +76,52 @@ _PIN_KIND_LABEL: dict[PinKind, str] = {
 
 @dataclass(frozen=True)
 class Node:
-    """Un nœud du circuit, avec son nombre de broches de chaque genre."""
+    """Un nœud du circuit, avec son nombre de broches de chaque genre.
+
+    ``component_ref`` n'est renseigné que pour un composant : c'est le nom de sa
+    définition dans la bibliothèque. Un nœud incohérent ne peut pas exister.
+    """
 
     node_id: int
     kind: NodeKind
     sink_count: int
     source_count: int
+    component_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse un nœud incohérent : identifiant, type, broches ou référence."""
+        if self.node_id < 0:
+            raise InvalidNodeError(f"L'identifiant {self.node_id} est négatif.")
+        if self.kind is NodeKind.COMPONENT:
+            self._check_component()
+        else:
+            self._check_fixed_kind()
+
+    def _check_component(self) -> None:
+        """Un composant a un nom, et un nombre de broches positif ou nul."""
+        if not self.component_ref:
+            raise InvalidNodeError("Un composant doit avoir un nom de définition.")
+        if self.sink_count < 0 or self.source_count < 0:
+            raise InvalidNodeError(
+                f"Le composant {self.component_ref} ne peut pas avoir un nombre "
+                f"négatif de broches ({self.sink_count} puits, "
+                f"{self.source_count} sources)."
+            )
+
+    def _check_fixed_kind(self) -> None:
+        """INPUT, OUTPUT et NAND n'ont pas de référence et un nombre de broches fixe."""
+        if self.component_ref is not None:
+            raise InvalidNodeError(
+                f"Un nœud {self.kind.name} n'a pas de définition "
+                f"(référence reçue : {self.component_ref})."
+            )
+        counts = _PIN_COUNTS[self.kind]
+        if (self.sink_count, self.source_count) != (counts.sinks, counts.sources):
+            raise InvalidNodeError(
+                f"Un nœud {self.kind.name} a {counts.sinks} puits et "
+                f"{counts.sources} source(s), pas {self.sink_count} et "
+                f"{self.source_count}."
+            )
 
     def pin_count(self, pin_kind: PinKind) -> int:
         """Renvoie le nombre de broches du genre demandé."""
@@ -115,18 +160,58 @@ class Circuit:
 
     # --- Modification -------------------------------------------------------
 
+    @classmethod
+    def from_parts(cls, nodes: Sequence[Node], wires: Sequence[Wire]) -> Self:
+        """Reconstruit un circuit en gardant les identifiants des nœuds donnés.
+
+        Sert à recharger un circuit (JSON) ou à en copier une partie. Les nœuds
+        doivent être donnés dans l'ordre de création, avec des identifiants
+        strictement croissants ; les câbles passent par ``connect``, donc les
+        règles de câblage s'appliquent. Les identifiants suivants repartent
+        après le plus grand identifiant donné : un nœud supprimé avant la copie,
+        avec un identifiant plus grand que tous les autres, n'est plus connu et
+        son identifiant peut donc être attribué de nouveau.
+        """
+        circuit = cls()
+        previous_id = -1
+        for node in nodes:
+            if node.node_id <= previous_id:
+                raise InvalidNodeError(
+                    f"Les identifiants doivent être strictement croissants : "
+                    f"{node.node_id} arrive après {previous_id}."
+                )
+            circuit._nodes[node.node_id] = node
+            previous_id = node.node_id
+        circuit._next_id = previous_id + 1
+        for wire in wires:
+            circuit.connect(wire.source, wire.sink)
+        return circuit
+
+    def copy(self) -> Self:
+        """Renvoie une copie indépendante du circuit (mêmes identifiants et câbles)."""
+        clone = type(self)()
+        clone._nodes = dict(self._nodes)
+        clone._wires = dict(self._wires)
+        clone._next_id = self._next_id
+        return clone
+
     def add_node(self, kind: NodeKind) -> int:
-        """Ajoute un nœud et renvoie son identifiant."""
+        """Ajoute un nœud INPUT, OUTPUT ou NAND et renvoie son identifiant."""
+        if kind is NodeKind.COMPONENT:
+            raise InvalidNodeError(
+                "Un composant se pose avec add_component_node : il faut son nom "
+                "et son nombre de broches."
+            )
         counts = _PIN_COUNTS[kind]
-        node_id = self._next_id
-        self._next_id += 1
-        self._nodes[node_id] = Node(
-            node_id=node_id,
-            kind=kind,
-            sink_count=counts.sinks,
-            source_count=counts.sources,
-        )
-        return node_id
+        return self._store(kind, counts.sinks, counts.sources, None)
+
+    def add_component_node(self, ref: str, sink_count: int, source_count: int) -> int:
+        """Pose un composant par référence et renvoie l'identifiant du nœud.
+
+        ``ref`` est le nom de la définition ; ``sink_count`` et ``source_count``
+        sont ses nombres d'entrées et de sorties.
+        """
+        return self._store(NodeKind.COMPONENT, sink_count, source_count, ref)
 
     def remove_node(self, node_id: int) -> None:
         """Supprime un nœud, ainsi que tous les câbles qui le touchent."""
@@ -201,6 +286,15 @@ class Circuit:
         )
 
     # --- Outils internes ----------------------------------------------------
+
+    def _store(
+        self, kind: NodeKind, sink_count: int, source_count: int, ref: str | None
+    ) -> int:
+        """Crée le nœud (qui se vérifie lui-même), puis consomme un identifiant."""
+        node = Node(self._next_id, kind, sink_count, source_count, ref)
+        self._nodes[node.node_id] = node
+        self._next_id += 1
+        return node.node_id
 
     def _ids_of_kind(self, kind: NodeKind) -> tuple[int, ...]:
         """Renvoie les identifiants des nœuds d'un type, dans l'ordre de création."""

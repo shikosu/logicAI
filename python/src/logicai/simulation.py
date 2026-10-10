@@ -136,6 +136,7 @@ def _prepare(
     state: Sequence[int] | None,
 ) -> tuple[_Plan, tuple[int, ...], tuple[int, ...]]:
     """Contrôle les données puis prépare le plan, les entrées et l'état de départ."""
+    _check_flat(circuit)
     _check_mask(mask)
     inputs = tuple(input_values)
     if len(inputs) != len(circuit.inputs()):
@@ -157,6 +158,16 @@ def _prepare(
             )
         _check_range(current, mask, "d'état")
     return _compile(circuit), inputs, current
+
+
+def _check_flat(circuit: Circuit) -> None:
+    """Refuse un circuit qui contient des composants : il faut l'aplatir d'abord."""
+    for node in circuit.nodes():
+        if node.kind is NodeKind.COMPONENT:
+            raise SimulationError(
+                f"Le nœud {node.node_id} est un composant ({node.component_ref}) : "
+                "aplatis le circuit (flatten) avant de le simuler."
+            )
 
 
 def _check_mask(mask: int) -> None:
