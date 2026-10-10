@@ -362,12 +362,61 @@ Cahier : « Elle ne vise donc pas une table imposée » (système de récompense
 **plus tard** et listée en phase 6 (« paliers 4 et 5 : plusieurs sorties, variante défis, entrée CLK, bonus mémoire »). Les risques du cahier citent déjà « circuits énormes ou inutiles » et « explosion combinatoire dès 4 entrées »
 avec les parades « pénalité de taille » et « variante défis ». Donner des tables à la main serait donc une **modification du cahier**, que je ne décide pas seul.
 
+### Après la phase 5 : « découvertes d'abord » (décisions de Téo)
+
+Réponses de Téo aux questions posées après sa vérification visuelle :
+
+| Question | Réponse de Téo |
+| --- | --- |
+| Que montrer en direct ? | **Découvertes d'abord** : une découverte (nouveauté ou record) est montrée en direct avec ses valeurs ; sinon, seulement les essais pas plus gros que 1,5 fois la meilleure version connue |
+| Tables de vérité comme objectifs de l'IA | **Garder le plan du cahier** : la variante « défis » (le système se fixe lui-même une table absente de la bibliothèque) reste en phase 6, après une mesure du gain avant de coder. Rien n'est commencé |
+| Mettre à jour `CLAUDE.md` | **Oui** : fait (section « Commandes vérifiées » seulement : 178 EditMode, 5 PlayMode, commande `python -m logicai.live`, rappel de comparer le **total**) |
+
+Mise en œuvre (Python seulement ; **aucun changement C#**, donc les totaux Unity restent 178 et 5) :
+
+- `live_director.py` : `offer_trial(messages, priority=False)` et `wants_priority_trial()`. Un essai **prioritaire** part tout de suite, même pendant la pause entre deux essais, et passe devant un essai ordinaire en cours ;
+  un essai prioritaire en cours n'est **jamais interrompu** (ni par un autre prioritaire, ni par un ordinaire).
+- `live.py` : une découverte est annoncée **puis** montrée (si `wants_priority_trial()`) ; un essai qui n'apporte rien n'est préparé que si le directeur le demande **et** s'il est assez petit (`SHOWN_SIZE_FACTOR = 1.5`).
+- `live_show.py` : `shown_nand_count(circuit, definitions)`, la taille du circuit **tel qu'il est montré** (aplati puis nettoyé), calculée par la même fonction que l'affichage.
+
+Conception retenue pour ne pas modifier un test existant : le test `test_display_work_is_done_only_when_the_director_asks` (« un seul essai préparé en 20 générations quand le directeur n'a rien demandé ») décrit une règle qui reste vraie ;
+je ne l'ai donc **pas touché** et il passe. Les nouvelles règles sont couvertes par des tests ajoutés. Au tout début, l'unique essai montré est la découverte de NOT (la bibliothèque est vide : le premier essai accepté est toujours une nouveauté).
+
+Limite connue, par choix de simplicité : dans une **rafale** de découvertes (les premières secondes), la première est montrée jusqu'au bout et les suivantes, qui arrivent pendant ce temps, ne sont **pas** montrées en direct (elles sont dans la bibliothèque
+et se rejouent d'un clic). Une file d'attente est possible, mais n'a pas été demandée.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `896 passed` en environ 83 s (875 avant, 21 nouveaux : 9 directeur, 9 branchement, 3 taille montrée) |
+| Mutations (copie hors du projet) | directeur 12 sur 12 détectées ; `live.py` 13 sur 14 détectées, 1 équivalente ; `live_show.py` 2 sur 2 |
+
+Le mutant équivalent : retirer le test de type `NOTHING` pour ne garder que « le directeur veut » ne change rien d'observable, car un essai refusé a toujours `name = None` et la garde sur le nom l'écarte. Je garde le test explicite pour la lisibilité.
+Une 1re version de mon test « sans nom connu » ne détectait pas la suppression de cette garde (l'erreur est avalée et journalisée par le `try` de `_on_trial`) : il vérifie maintenant qu'aucune erreur n'est journalisée.
+Une hypothèse fausse de ma part, corrigée avant le commit : j'attendais au moins 3 découvertes en 30 générations ; la graine 0 n'en trouve que 2 (NOT, NAND). Le test joue 60 générations (4 découvertes, 4 essais montrés).
+
+**Mesures (graine 1, 3000 générations, pour juger l'effet réel)** :
+
+| Règle | Résultat |
+| --- | --- |
+| Avant : ce qui était montré | uniquement des essais sans apport : moyenne 4,3 NAND, maximum 38 |
+| Maintenant : découvertes montrées | 127 (au lieu de 0) |
+| Maintenant : essais ordinaires candidats | 50 025 (au lieu de 57 401), moyenne 3,7 NAND, maximum 24 |
+
+Part des essais ordinaires qui passeraient selon le facteur de taille : 1,0 → 81,3 % (moyenne 3,4) ; 1,25 → 83,1 % ; **1,5 → 87,2 %** ; 2,0 → 91,8 % ; 3,0 → 97,5 %.
+
+**Enseignement important** : même avec un facteur de 1,0 (uniquement des versions minimales), 81 % des essais ordinaires passent. Les essais « sans valeur » ne sont donc pas surtout trop gros : ce sont des circuits **déjà minimaux qui
+redécouvrent une fonction connue** (par exemple un NOT en 1 NAND refait des milliers de fois). Le filtre de taille agit peu ; le vrai changement est que les découvertes sont montrées. Si l'écran paraît encore monotone, l'étape suivante
+possible est de **varier** ce qu'on montre (ne pas remontrer la même fonction coup sur coup) : non fait, à décider par Téo après avoir regardé.
+
 ### Ce qui reste
 
-- **À trancher par Téo** (questions posées en fin de session) : (a) que montrer en direct (voir les options dans la conversation) ; (b) si, et quand, introduire les tables de vérité comme objectifs (variante « défis » du cahier, phase 6) ; (c) mettre à jour
-  la section « Commandes vérifiées » de `CLAUDE.md` (65 → 178 tests EditMode, 2 → 5 PlayMode, ajouter `python -m logicai.live`) : je n'y touche pas sans son accord.
-- Réglages à ajuster à l'usage : vitesse de rediffusion (`ReplayStepSeconds` = 0,4 s), rythme des essais (3 s / 0,5 s), largeur du panneau (240 px).
-- Ne pas commencer la phase 6 sans son accord (elle contient la variante « défis »).
+- **Téo** : relancer la même vérification visuelle (`python -m logicai.live --seed 1`, Play, « En direct ») pour juger si les découvertes montrées en direct répondent à sa remarque. Aucune action côté Unity.
+- Réglages à ajuster à l'usage : `SHOWN_SIZE_FACTOR` (1,5), vitesse de rediffusion (`ReplayStepSeconds` = 0,4 s), rythme des essais (3 s / 0,5 s), largeur du panneau (240 px).
+- Options non faites, à la demande de Téo seulement : file d'attente de découvertes pendant une rafale ; variété des fonctions montrées ; légende « découverte » à l'écran (demanderait un champ de plus dans le message `circuit`).
+- Ne pas commencer la phase 6 sans son accord (elle contient la variante « défis », dont la première étape sera une mesure du gain).
 
 ---
 
