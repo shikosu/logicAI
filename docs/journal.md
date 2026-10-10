@@ -113,9 +113,33 @@ Horloge injectée : les tests utilisent une fausse horloge, sans attente réelle
 Deux trous de **mes tests**, trouvés par les mutations et comblés : le nom `essai` n'était comparé qu'à la constante qui le définit (donc toujours vrai) ; il est maintenant écrit en dur, car Unity l'affiche dans sa ligne d'état ;
 et proposer une suite vide pendant un essai en cours (qui doit être ignorée sans interrompre l'essai) n'était testé qu'au repos.
 
+### Étape 5 faite : branchement (`live.py`, crochet dans `evolution.py`, tests `test_live.py` et `test_evolution.py`)
+
+- **Crochet** : `Evolution(..., on_trial=...)` rappelle `on_trial(enfant, résultat)` après chaque essai (l'enfant tel qu'essayé, nœuds inutiles compris). Facultatif, 9 lignes ; une erreur du crochet n'est pas cachée.
+- **`LiveSession(director, seed, stalled_generations, ...)`** relie l'IA (bibliothèque vide, paliers via `Curriculum`) au directeur. À chaque essai : une **nouveauté ou un record** devient tout de suite un message `decouverte`
+  (circuit tel que dans la bibliothèque à cet instant, coût aplati, ordre de pose de `replay.py`) ; sinon, si `director.wants_trial()`, un essai **accepté** est préparé (`live_show.trial_messages`) et proposé.
+  À chaque génération : un message `stats` (palier, génération, nombre de découvertes, récompense moyenne = totale / essais). Une erreur d'affichage est journalisée et **ne casse jamais l'entraînement**.
+- **Commande** : `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live [--port N] [--seed S] [--generations G]` (sans `--generations`, jusqu'à Ctrl-C ; port 8765 par défaut). Journal sur stderr (pas de `print`),
+  code de sortie 0, ou 2 si le port est pris (message clair, pas de traceback). **Vérifiée à la main sur cette machine** avec un faux Unity : NOT découvert, stats reçues, code 0.
+  Elle n'est pas encore dans la section « Commandes vérifiées » de `CLAUDE.md` (fichier de Téo) : proposition d'y ajouter la ligne ci-dessus après sa propre vérification sur le Mac.
+- **À retenir pour le C#** (constaté à la main) : un Unity qui se connecte en pleine animation reçoit des `etat` **sans** le message `circuit` qui les précède (parti avant sa connexion) ; il doit les ignorer tant qu'il n'a pas de circuit.
+  Il peut donc se passer jusqu'à une pause + un essai (de l'ordre de 9 s) avant le premier essai visible ; la bibliothèque, elle, est remplie tout de suite par l'historique des `decouverte`.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `52 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `872 passed` en environ 70 s (854 avant, 18 nouveaux : 16 dans `test_live.py`, 2 pour le crochet) |
+| Mutations (copie hors du projet) | `live.py` 26 erreurs volontaires, 26 détectées après correction ; crochet d'`Evolution` 5, 5 détectées |
+
+Trous de **mes tests**, trouvés par les mutations et comblés : (1) mes essais (graine 0) ne contenaient aucun *record*, donc « record annoncé comme nouveauté » et « records ignorés » passaient ; trouvé la graine 5 (un NOT d'abord trouvé avec
+plus de NAND, puis réduit) et ajouté un test qui exige un `record` après sa `nouveaute`, moins cher ; (2) la graine n'était jamais vérifiée (tout tournait avec 0) ; (3) la commande ne vérifiait pas qu'elle libère le port ni qu'elle arrête ses
+fils en sortant ; (4) l'enfant « nettoyé » transmis à la place de l'enfant essayé : le contrat est maintenant figé par un test.
+
 ### Ce qui reste
 
-Étapes 5 et 6 (Python) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+Étape 6 (Python : test de la phase côté Python, dont le débit d'entraînement avec un client qui ne lit pas) puis 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
 
 ---
 

@@ -13,7 +13,7 @@ from logicai.filters import find_rejections
 from logicai.flatten import flatten
 from logicai.library import Library
 from logicai.mutations import MutationResult, MutationRules
-from logicai.reward import RewardTracker, TrialKind
+from logicai.reward import RewardTracker, TrialKind, TrialResult
 
 # Réglages des paliers 1 et 2 : une seule sortie, pas de boucle (décisions Q4 et Q5).
 LEVEL_1 = MutationRules(max_inputs=1, max_outputs=1)
@@ -321,3 +321,45 @@ def test_library_stays_consistent_after_a_run() -> None:
             name,
             0.0,
         )
+
+
+# --- Le crochet « un essai vient d'être jugé » -------------------------------
+
+
+def test_on_trial_is_called_for_every_child_with_its_result() -> None:
+    # Règle : le crochet ``on_trial`` reçoit chaque enfant et son résultat, une fois par
+    # essai ; la somme des récompenses reçues est celle du rapport ; et pour une
+    # découverte, le composant est déjà dans la bibliothèque au moment de l'appel.
+    library = Library()
+    seen: list[tuple[Circuit, TrialResult]] = []
+
+    def hook(circuit: Circuit, result: TrialResult) -> None:
+        if result.kind in (TrialKind.NEW, TrialKind.RECORD):
+            assert result.name in library.names()
+        seen.append((circuit, result))
+
+    evolution = Evolution(library, LEVEL_1, SMALL, seed=0, on_trial=hook)
+    reports = [evolution.step() for _ in range(5)]
+    assert len(seen) == 5 * SMALL.children_per_generation
+    assert all(isinstance(circuit, Circuit) for circuit, _ in seen)
+    assert sum(result.reward for _, result in seen) == sum(
+        report.total_reward for report in reports
+    )
+    assert any(result.kind is TrialKind.REJECTED for _, result in seen)
+    assert any(result.kind is TrialKind.NEW for _, result in seen)
+    # L'enfant arrive tel qu'il a été essayé, nœuds inutiles compris (pas nettoyé).
+    assert any(
+        _snapshot(circuit) != _snapshot(remove_useless_nodes(circuit))
+        for circuit, _ in seen
+    )
+
+
+def test_an_error_in_on_trial_is_not_hidden() -> None:
+    # Règle : le crochet s'exécute dans la boucle d'entraînement et ses erreurs ne sont
+    # pas cachées (c'est à l'appelant de les traiter ; voir ``LiveSession``).
+    def hook(circuit: Circuit, result: TrialResult) -> None:
+        raise RuntimeError("crochet en panne")
+
+    evolution = Evolution(Library(), LEVEL_1, SMALL, seed=0, on_trial=hook)
+    with pytest.raises(RuntimeError, match="crochet en panne"):
+        evolution.step()
