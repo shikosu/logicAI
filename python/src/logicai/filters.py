@@ -13,6 +13,20 @@ Les filtres jugent le **comportement** (la table de vérité du circuit aplati),
 câblage : un circuit câblé de façon tordue mais équivalent à un fil est refusé aussi.
 Ils ne modifient jamais le circuit. Un circuit refusé vaut 0 point (cahier, schéma du
 chemin d'un essai).
+
+Un circuit à mémoire n'a pas de table de vérité significative : ``find_rejections`` le
+classe « instable » (sa table, jouée depuis l'état 0, oscille).
+``find_behavior_rejections`` juge un circuit sur sa batterie de séquences (module
+``sequential``) quand il en a une et, sinon, comme avant. Les cinq filtres y gardent le
+même sens, appliqué à chaque pas de chaque séquence :
+
+- une entrée est **inutile** si retirer tous ses changements d'une marche ne modifie
+  jamais les sorties (les sorties au pas t valent celles de la marche sans ces
+  changements) ; la CLK compte comme une entrée pour ce filtre : une CLK qui ne change
+  aucune sortie serait un moyen gratuit de faire passer un circuit pour nouveau ;
+- une sortie est **constante** si elle ne prend qu'une valeur, à tous les pas ;
+- deux sorties sont **identiques** si elles valent pareil à tous les pas ;
+- une sortie **recopie une entrée** (ou la CLK) si elle vaut ce signal à tous les pas.
 """
 
 from collections.abc import Mapping
@@ -21,6 +35,7 @@ from enum import Enum, auto
 from logicai.behavior import TruthTable, full_mask, input_patterns, truth_table
 from logicai.circuit import Circuit
 from logicai.flatten import flatten
+from logicai.sequential import Outputs, Responses, Walk, run_battery, walk_vectors
 from logicai.simulation import Status
 
 
@@ -46,6 +61,59 @@ def find_rejections(
     """
     table = truth_table(flatten(circuit, definitions))
     return rejections_of_table(table, len(circuit.inputs()))
+
+
+def find_behavior_rejections(
+    circuit: Circuit, definitions: Mapping[str, Circuit]
+) -> tuple[Rejection, ...]:
+    """Comme ``find_rejections``, mais un circuit à mémoire est jugé sur sa batterie.
+
+    Un circuit sans boucle, ou dont la batterie ne révèle aucune mémoire, est jugé sur
+    sa table de vérité : le résultat est celui de ``find_rejections``. Une marche qui
+    oscille donne ``UNSTABLE``. Un circuit à mémoire stable est jugé par les cinq
+    filtres appliqués à chaque pas de chaque marche.
+    """
+    flat = flatten(circuit, definitions)
+    input_count = len(circuit.inputs())
+    battery = run_battery(flat)
+    if battery is None or (
+        battery.status is Status.STABLE and not battery.memory and not battery.clocked
+    ):
+        return rejections_of_table(truth_table(flat), input_count)
+    if battery.status is Status.UNSTABLE:
+        return (Rejection.UNSTABLE,)
+    return sequential_rejections(battery.responses, input_count, battery.clocked)
+
+
+def sequential_rejections(
+    responses: Responses, input_count: int, clocked: bool = False
+) -> tuple[Rejection, ...]:
+    """Applique les filtres à la réponse d'un circuit stable à la batterie.
+
+    ``clocked`` dit que la CLK est le dernier signal des marches, après les entrées.
+    """
+    signal_count = input_count + clocked
+    observations = _observations(responses, signal_count, clocked)
+    output_count = len(observations[0][1]) if observations else 0
+    checks = (
+        (
+            Rejection.UNUSED_INPUT,
+            _sequential_unused_input(responses, signal_count),
+        ),
+        (
+            Rejection.CONSTANT_OUTPUT,
+            _sequential_constant_output(observations, output_count),
+        ),
+        (
+            Rejection.DUPLICATE_OUTPUTS,
+            _sequential_duplicate_outputs(observations, output_count),
+        ),
+        (
+            Rejection.COPIED_INPUT,
+            _sequential_copied_input(observations, signal_count, output_count),
+        ),
+    )
+    return tuple(reason for reason, found in checks if found)
 
 
 def rejections_of_table(table: TruthTable, input_count: int) -> tuple[Rejection, ...]:
@@ -107,3 +175,86 @@ def _has_copied_input(outputs: tuple[int, ...], input_count: int) -> bool:
     """Dit si une sortie est exactement une entrée (un fil suffirait)."""
     patterns = set(input_patterns(input_count))
     return any(out in patterns for out in outputs)
+
+
+# --- Circuits à mémoire : les filtres sur la batterie --------------------------------
+
+_Observation = tuple[tuple[int, ...], Outputs]
+
+
+def _observations(
+    responses: Responses, signal_count: int, clocked: bool
+) -> list[_Observation]:
+    """Renvoie, pour chaque pas de chaque marche, les signaux et les sorties."""
+    return [
+        (vector, outputs)
+        for walk, steps in responses.items()
+        for vector, outputs in zip(
+            walk_vectors(signal_count, walk, clocked), steps, strict=True
+        )
+    ]
+
+
+def _sequential_unused_input(responses: Responses, signal_count: int) -> bool:
+    """Dit si un signal n'a d'effet sur aucune sortie, à aucun pas d'aucune marche."""
+    prefixes = _prefix_outputs(responses)
+    return any(
+        not _influences(responses, prefixes, index) for index in range(signal_count)
+    )
+
+
+def _prefix_outputs(responses: Responses) -> dict[Walk, tuple[Outputs, ...]]:
+    """Donne la réponse de chaque début de marche (au plus L changements d'entrée)."""
+    prefixes: dict[Walk, tuple[Outputs, ...]] = {}
+    for walk, steps in responses.items():
+        for length in range(len(walk) + 1):
+            prefixes[walk[:length]] = steps[: length + 1]
+    return prefixes
+
+
+def _influences(
+    responses: Responses, prefixes: dict[Walk, tuple[Outputs, ...]], index: int
+) -> bool:
+    """Dit si les changements de l'entrée ``index`` modifient les sorties quelque part.
+
+    Au pas t d'une marche, on compare les sorties à celles que donne la même marche
+    privée de tous ses changements de cette entrée jusqu'au pas t.
+    """
+    for walk, steps in responses.items():
+        for step, outputs in enumerate(steps):
+            without = tuple(i for i in walk[:step] if i != index)
+            if prefixes[without][-1] != outputs:
+                return True
+    return False
+
+
+def _sequential_constant_output(
+    observations: list[_Observation], output_count: int
+) -> bool:
+    """Dit si une sortie ne prend qu'une seule valeur, à tous les pas."""
+    return any(
+        len({outputs[k] for _, outputs in observations}) == 1
+        for k in range(output_count)
+    )
+
+
+def _sequential_duplicate_outputs(
+    observations: list[_Observation], output_count: int
+) -> bool:
+    """Dit si deux sorties valent pareil à tous les pas."""
+    return any(
+        all(outputs[k] == outputs[other] for _, outputs in observations)
+        for k in range(output_count)
+        for other in range(k + 1, output_count)
+    )
+
+
+def _sequential_copied_input(
+    observations: list[_Observation], signal_count: int, output_count: int
+) -> bool:
+    """Dit si une sortie vaut un signal à tous les pas (un fil suffirait)."""
+    return any(
+        all(outputs[k] == vector[i] for vector, outputs in observations)
+        for k in range(output_count)
+        for i in range(signal_count)
+    )

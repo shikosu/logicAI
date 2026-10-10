@@ -4,7 +4,186 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), en cours
+## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), terminée côté Python (parcours complet mesuré) ; réglages à affiner par essais
+
+### Décisions de Téo en début de session
+
+| Question | Réponse |
+|---|---|
+| Interprétation de la CLK (point resté ouvert du cahier) | **Nœud CLK posable** : source à 1 broche que l'IA pose et câble comme une NAND ; la simulation lui donne le signal ; tous les nœuds CLK partagent la même horloge ; ce n'est pas une broche du composant |
+| Comment tester les circuits à mémoire sans rejeter toute bascule | **Un seul changement d'entrée à la fois** : chaque séquence (« marche ») part de toutes les entrées à 0 et change une entrée par pas, 4 pas ; toute oscillation rejette le circuit (cahier intact) |
+| Variante « défis » (après la mesure 1 sur 8 → 7 sur 8) | **Oui, comme prototypée** : le système choisit la cible au hasard parmi les tables absentes ; la proximité ne sert qu'à choisir les parents ; la récompense ne change pas ; palier 4 = 4 entrées et 3 sorties au plus |
+| Protocole de l'horloge | **CLK à 1 au départ**, signal de plus dans les marches (un seul signal change à la fois, CLK comprise), sorties lues à chaque pas |
+| Mes interprétations (bonus mémoire sur une nouveauté seulement, 100 ; filtres jugés à chaque pas ; boucle sans mémoire = circuit combinatoire) | **OK pour toutes** |
+| Quand quitter le palier 4 (le critère « N générations sans nouveauté » ne s'y déclenche jamais) | **Nombre de générations fixe** : 2 000 au départ |
+| Les cibles de défi tirées au hasard sont presque toujours trop dures | **Petites cibles d'abord** : 2 entrées et 2 sorties, puis un cran de plus à chaque défi atteint |
+
+### État de départ (vérifié)
+
+Python 3.14.7 ; `ruff check`, `ruff format --check`, `mypy` verts ; **914 tests** (le journal annonçait 896 : les 18 de plus sont ceux de `python/tests/test_routing.py`).
+`python/src/logicai/routing.py` et `python/tests/test_routing.py` (tracé des câbles pour l'affichage) **ne sont suivis par aucun commit et absents du journal** : je n'y ai pas touché et je ne les ai pas commités.
+Les `.meta` des fichiers C# de la phase 5 sont toujours non suivis (à commiter par Téo, comme convenu).
+
+### Étape 2 faite : nœud CLK (`circuit.py`, `simulation.py`, `flatten.py`, `cleanup.py`, `serialization.py`, `layout.py`, `tests/test_clock.py`)
+
+- `NodeKind.CLK` : 0 puits, 1 source ; `Circuit.clocks()`. La valeur de la CLK est **imposée par l'appelant** (`settle(..., clock=)` et `tick(..., clock=)`), comme une entrée, sans retard, figée pendant un appel :
+  l'appelant la fait changer entre deux appels, une fois le circuit stabilisé (c'est la demi-période plus longue que T_max du cahier). La CLK se lit dans une case de plus, après les vraies entrées (toutes les CLK partagent cette case).
+- **Un circuit qui a une CLK refuse de se simuler sans valeur d'horloge** (`SimulationError`) : la table de vérité, les relevés et la bibliothèque ne prennent donc jamais la CLK pour 0 en silence.
+- Une CLK dans un composant reste une CLK dans le circuit aplati ; une CLK qui n'alimente rien d'utile est retirée par le nettoyage ; JSON : type `"CLK"` ; placement : colonne 0 avec les entrées.
+- Le protocole de l'horloge (quand elle bascule par rapport aux entrées) est celui de l'étape 6.
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `937 passed` (914 + 23 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | 11 sur 11 détectées (confirmé avec le banc corrigé) |
+
+Une erreur de **mon test** (le code était juste) : j'avais écrit 7 NAND pour la bascule D du test de nettoyage ; elle en a 5 (la NAND inutile et la CLK inutile étaient bien retirées).
+
+### Étape 3 faite : circuits à mémoire (`sequential.py`, `filters.py`, `library.py`, `tests/test_sequential.py`)
+
+- `sequential.py` : batterie (`battery_walks`, `walk_vectors`), `has_loop`, `run_battery` (rend `None` sans boucle ou sans entrée : pas de mémoire possible), signature séquentielle canonique (`sequential_form`).
+  La signature est la réponse à toute la batterie ; **entrées échangées = une seule découverte**, sorties jamais permutées (cahier). `BATTERY_LENGTH = 4` et `MAX_CANONICAL_INPUTS = 5` (au-delà, l'ordre d'origine est gardé et `exact = False`).
+- `filters.py` : `find_behavior_rejections` juge un circuit sur sa batterie quand il a une mémoire, sinon exactement comme `find_rejections` (qui n'a **pas** changé : le test `test_filters.py:204` qui range la bascule SR en « instable » reste vrai).
+  Les cinq filtres du cahier sont appliqués à chaque pas de chaque marche : entrée inutile = retirer tous ses changements d'une marche ne modifie jamais les sorties ; sortie constante ; sorties identiques ; sortie qui recopie une entrée ; instable = une marche oscille.
+- `library.py` : un circuit dont la batterie révèle une mémoire est enregistré avec sa signature séquentielle (nom `C-001`…, record = moins de NAND, ordre des entrées préservé, sauvegarde/rechargement) ; une marche qui oscille est refusée (`UnstableCircuitError`). Une boucle sans mémoire reste un composant combinatoire.
+- Calculé **à la main avant de coder**, puis retrouvé par le code : la marche S̄, R̄, S̄, S̄ de la bascule donne les sorties (1,1), (0,1), (0,1), (1,0), (1,0) ; (1,1) est atteint deux fois avec deux sorties différentes : c'est la mémoire. Il faut 4 changements pour cela (testé : 3 ne suffisent pas).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `986 passed` (937 + 49 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | annoncé 23 sur 23 à ce moment-là, **mais le banc était faussé** (voir « Banc d'erreurs volontaires corrigé ») ; refait : 21 sur 23, puis 23 sur 23 après deux tests ajoutés |
+
+Une erreur de prémisse dans **mes tests** (2 tests en échec, le code était juste) : j'avais supposé qu'une bascule aux **sorties échangées** est une autre découverte. C'est la **même** que la bascule aux entrées échangées (la bascule SR est symétrique : échanger S̄ et R̄ échange Q et Q̄), conformément à la décision du cahier ; j'ai gardé un test qui le documente et ajouté un vrai cas où l'ordre des sorties compte (une mémoire et une porte symétrique).
+Un trou connu comblé par anticipation (leçon de la phase 5) : avec 2 entrées, une permutation est son propre inverse ; un test à 3 entrées (rotation) distingue l'ordre de l'ordre inverse.
+
+### Étape 4 faite : bonus mémoire et paliers avec boucles (`reward.py`, `library.py`, `stages.py`, `tests/test_reward_memory.py`, `tests/test_phase6.py`)
+
+- `RewardSettings.memory` (**100 au départ**, « grand » comme la nouveauté, à régler par essais) : bonus **ajouté à une nouveauté** dont le composant a une mémoire (`Component.has_memory`). `TrialResult.memory` dit si le composant est un circuit à mémoire. `RewardTracker` juge maintenant les filtres sur la batterie.
+- `Stage.allow_loops` (faux par défaut) : un palier peut permettre les boucles. `STAGES` (paliers 1 à 3) est **inchangé**, donc `live.py` aussi.
+- **Test de la phase, partie mémoire** (`test_phase6.py`) : avec les boucles permises, l'IA trouve la bascule SR minimale (2 NAND, signature exacte), à 1 sortie (graines 1, 2, 5) et à 2 sorties (graines 4, 7), reproductible ; **contrôle négatif** : sans boucle, jamais de mémoire.
+- Trois erreurs de **mes tests** corrigées (le code était juste) : la bascule trouvée réutilise le composant NAND (+5 de réutilisation) ; un « NOT avec une boucle sans effet » coûte 2 NAND, pas 1 ; `flatten` avec `{}` ne connaît pas le composant NAND (il faut `library.definitions()`).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1005 passed` en environ 37 s (986 + 19 nouveaux, aucun test existant modifié) |
+| Erreurs volontaires (copie hors du projet) | 10 sur 10 détectées (confirmé avec le banc corrigé) |
+| Vitesse d'entraînement (paliers 1 à 3, sans boucle) | 173 → 160 générations par seconde (environ -8 %, le test de boucle de chaque essai) |
+
+### Banc d'erreurs volontaires corrigé (mon erreur de méthode)
+
+Mon script d'erreurs volontaires lançait pytest sans `PYTHONDONTWRITEBYTECODE=1` : du bytecode périmé (`.pyc`) d'une mutation pouvait servir à la suivante et **fabriquer de fausses détections**. Je l'ai vu parce que trois survivantes apparaissaient ou disparaissaient d'une exécution à l'autre pour le même code.
+Corrigé (variable ajoutée) puis **toutes les séries refaites** : CLK 11/11, récompense 10/10, séquentiel 21/23 (puis 23/23), défis 18/21 (puis 21/21), horloge 20/21 (puis 21/21). Les annonces « 23 sur 23 » de l'étape 3 étaient donc trop optimistes ; les vrais trous de **mes tests**, comblés :
+recopie de l'entrée 1 (le test ne copiait que l'entrée 0) ; message « batterie » de la bibliothèque ; `best_closeness` n'était pas comparé au vrai maximum ; mon test « la patience repart » avait une assertion toujours vraie ; un palier 1 qui n'autorisait de toute façon aucun défi ; `compile_circuit` sans le refus des composants (**trou hérité de la phase 2** : aucun test ne vérifiait que `settle` refuse un composant).
+Les séries de la phase 5 (journal, session 5) n'ont pas été refaites ; elles viennent d'un banc de la session précédente, probablement du même type : à garder en tête.
+
+### Étape 5 faite : variante « défis » et palier 4 (`challenge.py`, `evolution.py`, `stages.py`, `library.py`, `errors.py`, `tests/test_challenge.py`, `tests/test_phase6.py`)
+
+- `challenge.py` : `Challenge(input_count, outputs)` (une table par sortie) ; `closeness` = bits de table égaux à ceux de la cible, sorties dans l'ordre, sur l'ordre d'origine des entrées (`None` si la forme est mauvaise, le circuit instable ou à CLK) ;
+  `signature` canonique (la cible est reconnue même avec ses entrées échangées) ; `choose_challenge` tire une cible (2 à 4 entrées, 1 à 3 sorties) **au hasard parmi les tables absentes de la bibliothèque et acceptées par les filtres**, avec une graine.
+- `Evolution.challenge` (facultatif) : une archive des 50 circuits les plus proches (même refusés), et **la moitié des parents** sont tirés dedans. Sans défi, **aucun tirage de plus** : le déroulement est exactement celui d'avant (tous les tests à graine fixe passent sans modification).
+  Le réglage `challenge` vide l'archive. `Evolution.library` et `best_closeness` sont publics.
+- `Curriculum(..., challenges=ChallengeSettings(seed, patience=300, first_stage=4))` : fixe un défi à l'arrivée au palier 4, le change quand il est atteint (`reached_challenges`) ou après 300 générations sans progrès de la proximité. `STAGE_4` = 4 entrées, 3 sorties ; `STAGES_1_TO_4` ; `STAGES` (1 à 3) est **inchangé**.
+- **Test de la phase, partie demi-additionneur** : après 800 générations d'échauffement à 3 entrées, le défi « demi-additionneur » (passé explicitement) est trouvé aux graines 3, 5 et 7 (générations 26, 88 et 43) ; **contrôle négatif** : sans défi, la graine 3 ne le trouve pas dans le même budget.
+
+| Mesure avec le vrai code (8 graines, échauffement 800, budget 1 500) | Résultat |
+|---|---|
+| Demi-additionneur (ordre SOMME, RETENUE) **sans** défi | **0 sur 8** |
+| Même chose **avec** le défi posé tout de suite | **7 sur 8** (générations 26 à 1 313) ; bibliothèque 76 à 1 338 composants au lieu de 1 739 à 4 203 |
+| Défi posé **après** 150 générations sans défi | 1 sur 8 : la bibliothèque s'est déjà remplie de paires inutiles ; le parcours pose donc le défi dès l'arrivée au palier |
+| Défis **choisis par le système** (parcours réel, 1 500 générations après le palier 4) | 3 graines sur 8 atteignent 1 défi, 5 aucun ; bibliothèque de 1 789 à 8 111 composants |
+
+Les cibles tirées au hasard (jusqu'à 4 entrées et 3 sorties) sont presque toujours trop dures : à régler (voir « En attente de Téo »).
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1046 passed` (1005 + 41 nouveaux : 36 `test_challenge.py`, 5 `test_phase6.py` ; la suite dure environ 65 s) |
+| Erreurs volontaires (banc corrigé) | 21 sur 21 détectées, après avoir comblé 4 trous de mes tests (tailles de défi non couvertes, archive des moins proches, remise à zéro de la patience, défis dès le palier 1) |
+
+### Étape 6 faite : protocole de l'horloge, mutation « poser la CLK » (`sequential.py`, `behavior.py`, `simulation.py`, `filters.py`, `library.py`, `mutations.py`, `stages.py`, tests `test_clocked_battery.py`, `test_mutations_clock.py`, `test_simulation_plan.py`, `test_phase6.py`)
+
+- **Protocole (décision de Téo)** : la CLK est le dernier signal des marches ; un seul signal change à la fois, CLK comprise ; **elle démarre à 1** ; sorties lues à chaque pas. Un circuit à CLK est **toujours** jugé sur sa batterie, même sans boucle ; la CLK compte dans le vecteur pour la mémoire.
+  `run_sequence(..., clocks=)`, `BatteryResult.clocked`, `SequentialSignature.memory` (un circuit à CLK peut ne pas avoir de mémoire), `Component.has_memory` en tient compte.
+- **Filtres** : la CLK est un signal comme un autre ; **une CLK qui ne change aucune sortie est refusée comme « entrée inutile »** (sinon accrocher une CLK inutile à n'importe quel circuit le ferait passer pour nouveau : sa signature a un signal de plus) ; une sortie qui recopie la CLK est refusée.
+  Interprétation de ma part, à confirmer.
+- **Mutation** : pas de huitième `Mutation` (le test « les 7 mutations du cahier sont toutes tirées » l'aurait cassé, et je ne modifie pas un test). `MutationRules.allow_clock` / `Stage.allow_clock` : quand il est actif, « ajouter une entrée » pose parfois la CLK à la place (une seule par circuit) ; « retirer un nœud » peut la retirer ; sans le réglage, **aucun tirage de plus**.
+- **Vitesse** : `compile_circuit` / argument `plan` : le circuit est préparé une fois par batterie au lieu de chaque pas (la préparation prenait environ 70 % du temps) : **batterie 2,4 fois plus rapide** ; résultats identiques. Coût mesuré d'une batterie pour une bascule D : 0,5 ms (1 entrée + CLK), 2,2 ms (2), 6,3 ms (3), 15 ms (4).
+- **Test de la phase, bascule à horloge** : 1 entrée, 1 sortie, boucles et CLK permises, bibliothèque vide : l'IA trouve la **bascule D exacte** aux graines 0, 5 et 6 (générations 121, 149 et 114) ; sans CLK permise, aucun composant n'a de CLK (contrôle négatif).
+  Mesure sur 8 graines (budget 300) : une mémoire à CLK (sans forcément la bascule D) est trouvée par 8 graines sur 8, dès la génération 1 à 48 ; la bascule D exacte par 3 sur 8 en 300 générations (8 sur 8 en 2 000 d'après une mesure plus longue, sur un CPU partagé).
+- Erreur de **mon test** : ma bascule à validation E active à 1 oscillait au démarrage (E démarre à 0 : le cœur voit S̄ = R̄ = 1 depuis l'état 0) : le code avait raison ; validation active à 0.
+
+| Contrôle (fin de l'étape) | Résultat |
+|---|---|
+| `pytest` | `1097 passed` en environ 70 s (1046 + 51 nouveaux) |
+| Erreurs volontaires (banc corrigé) | 21 sur 21 détectées (une survivante réelle comblée : le refus d'un composant par `compile_circuit`) |
+
+### Étape 7 faite : paliers 4 et 5 (`stages.py`, `tests/test_stages_phase6.py`)
+
+`STAGE_5` : mêmes limites que le palier 4 (un palier contient les précédents), boucles et CLK permises ; `STAGES_1_TO_5`. Valeurs de départ, à régler (le cahier ne donne aucun nombre d'entrées ou de sorties pour les paliers 4 et 5).
+`pytest` : `1102 passed` (+ 5).
+
+**Constat (tranché par Téo, étape 8) : le palier 5 était inatteignable par le parcours.** Le critère du cahier (« aucune nouveauté pendant N générations », N = 400) ne peut pas se déclencher au palier 4 : chaque paire de fonctions est une nouveauté, et la plus longue série de générations sans nouveauté mesurée au palier 4 est de **3 à 17** (8 graines, 7 000 générations, défis actifs).
+
+### Étape 8 faite : palier 4 de durée fixe, défis de taille progressive (`stages.py`, `challenge.py`, tests `test_stages_phase6.py`, `test_challenge.py`)
+
+- `Stage.max_generations` (facultatif, refusé si < 1) : on quitte le palier à la première de deux conditions, N générations calmes **ou** durée atteinte. `STAGE_4_GENERATIONS = 2000`. La durée se compte depuis l'arrivée dans chaque palier. Le dernier palier est gardé quelle que soit sa durée.
+- `challenge_size(niveau, max_entrées, max_sorties)` : niveau 0 = 2 entrées et 2 sorties, puis (3, 2), (3, 3), (4, 3)… sans dépasser les limites du palier. `Curriculum` fait grandir le niveau à chaque défi atteint, **et** quand toutes les cibles de la taille sont déjà connues (sans compter de défi atteint) ; à la limite du palier sans cible possible, il n'y a pas de défi et pas de boucle sans fin.
+- Erreurs volontaires (banc fiable, avec délai maximal par essai) : 13 sur 13 détectées (dont 2 boucles sans fin arrêtées au bout de 60 s). `pytest` : `1120 passed` en 71 s (1102 + 18 nouveaux).
+
+| Parcours complet paliers 1 → 5 (8 graines, N = 400, défis progressifs, palier 4 de 2 000 générations, 400 générations jouées au palier 5) | Résultat |
+|---|---|
+| Palier 4 atteint / palier 5 atteint | générations 2 984 à 5 881 / exactement 2 000 générations plus tard |
+| Défis atteints avant le palier 5 | **au moins 1 sur chacune des 8 graines** (1 pour 7 graines, 2 pour une), contre 3 graines sur 8 avec des cibles uniformes |
+| Première mémoire au palier 5 | **8 sur 8**, 1 à 29 générations après l'arrivée |
+| Première mémoire **à CLK** au palier 5 | **2 sur 8** (+69 et +157 générations) en 400 générations : bien plus dur dans une bibliothèque de 2 800 à 9 600 composants que depuis une bibliothèque vide (8 sur 8 en 48 générations) |
+| Durée d'une exécution | 185 à 365 s ; 12 à 28 composants à mémoire |
+
+### Mesures (scripts jetables hors du dépôt, graines 0 à 7)
+
+| Mesure | Résultat |
+|---|---|
+| Demi-additionneur, bibliothèque vide, 2 entrées / 2 sorties permises | **8 sur 8**, entre 176 et 1 287 générations |
+| Demi-additionneur par le **parcours normal** (paliers 1 à 3, N = 400, puis palier 4 à 4 entrées / 3 sorties) | **0 sur 8** : palier 4 atteint aux générations 2 984 à 5 881 ; budget total 6 000 ; la bibliothèque passe à 9 000 – 20 000 composants (environ 3 nouveaux par génération) |
+| Même parcours, palier 4 limité à 2 entrées / 2 sorties | **0 sur 8**, 3 000 à 6 000 composants |
+| Mémoire, boucles permises, bibliothèque vide | **16 sur 16** (2 entrées, 1 ou 2 sorties), en 3 à 79 générations ; la première mémoire est exactement la bascule minimale (2 NAND) dans 7 graines sur 8 à 1 sortie et 3 sur 8 à 2 sorties |
+| Mémoire dans le parcours réel (paliers 1 à 3 puis palier à boucles, 3 entrées / 2 sorties) | 5 graines sur 8 atteignent le palier à boucles avant la génération 3 500 ; mémoire trouvée 2 à 19 générations plus tard, **mais la première est grosse (6 à 10 NAND)** : la bascule minimale vient ensuite par records |
+| **Prototype de « défi »** (cible = demi-additionneur ; la moitié des parents choisis pour leur proximité avec la table cible ; récompense inchangée), après 1 500 générations d'échauffement, 2 000 générations de budget | **sans défi 1 sur 8** ; **avec défi 7 sur 8** (113 à 1 958 générations) ; bibliothèque de 296 à 2 593 composants au lieu de 1 072 à 4 975 |
+
+**Lecture.** Le demi-additionneur est une paire de fonctions (XOR, AND) parmi des dizaines de milliers de paires possibles dès que la bibliothèque est riche : chaque combinaison de fonctions déjà connues est une « nouveauté » (la signature est nouvelle) et rapporte 100 points. C'est le risque « explosion combinatoire » du cahier, et sa parade, la variante « défis ».
+La cause exacte n'est pas isolée (hypothèse non testée : dilution des parents dans une bibliothèque géante).
+
+**Démarrage des circuits à horloge (constat à te soumettre).** Départ « toutes les sorties à 0 » + « oscillation = rejet » (règles du cahier) : une bascule D à niveau (5 NAND) est **stable seulement si la CLK démarre à 1** (instable à 0) ; une bascule **maître-esclave** (front montant) est **instable dans les quatre cas** (CLK 0 ou 1, D 0 ou 1) : au démarrage, une de ses deux bascules SR voit (1, 1) depuis l'état 0 et oscille.
+Un circuit à bascules à front n'est donc atteignable que s'il a une entrée de remise à zéro (toutes les entrées démarrent à 0 : une remise active à 0 est enclenchée au départ).
+
+### En attente de Téo
+
+Rien de bloquant. À régler par essais, quand tu voudras :
+
+1. Les défis continuent au palier 5 (ils ne s'arrêtent pas, `ChallengeSettings.first_stage` n'a pas de borne haute) : la moitié des parents y vient d'une archive de circuits combinatoires proches de la cible, ce qui peut gêner la recherche de mémoires à CLK (2 graines sur 8 en 400 générations). À essayer : arrêter les défis au palier 5.
+2. Limites du palier 4 et 5 (4 entrées, 3 sorties), durée du palier 4 (2 000), patience (300), poids du bonus mémoire (100).
+3. À 4 entrées plus la CLK, la batterie coûte 15 ms par circuit : l'entraînement au palier 5 est lent (de l'ordre de 6 à 12 générations par seconde observées).
+4. Les circuits à bascule à front montant (maître-esclave) oscillent toujours au démarrage (constat plus haut) : ils exigent une entrée de remise à zéro. Ce n'est pas une question : c'est une conséquence des règles du cahier, à garder en tête pour « bascules, registres, compteurs ».
+
+### Interprétations (validées par Téo : « OK pour toutes »)
+
+- Le bonus mémoire ne vaut que pour une **nouveauté** (comme la réutilisation), pas pour un record ; valeur de départ 100.
+- Les cinq filtres, appliqués à une batterie : définitions plus haut (surtout « entrée inutile »).
+- Un circuit à boucle **sans** mémoire détectée est jugé comme un circuit combinatoire (table de vérité).
+- Une marche instable rejette le circuit (cahier).
+- Valeurs de départ choisies par moi : `BATTERY_LENGTH = 4`, `MAX_CANONICAL_INPUTS = 5`, bonus mémoire 100, `CHALLENGE_PARENT_SHARE = 0,5`, archive de 50, patience 300, palier 4 = 4 entrées / 3 sorties / 2 000 générations, palier 5 = mêmes limites avec boucles et CLK.
+- **Non validées** (apparues après son OK) : une CLK qui ne change aucune sortie est une « entrée inutile » ; un circuit à CLK est toujours jugé sur sa batterie même sans boucle.
+
+### Limites connues
+
+- Le C# (`CircuitLoader.Validate`) ne connaît pas le type `"CLK"` : **ne pas envoyer de circuit à CLK à Unity** avant d'avoir ajouté ce type côté C#. Aujourd'hui rien ne le fait : `STAGES` (1 à 3), seul utilisé par `live.py`, n'a ni boucle ni CLK. L'affichage en direct de circuits à mémoire n'est pas fait.
+- La batterie rejoue chaque marche sans partager les débuts communs (une optimisation possible : parcourir l'arbre des marches).
+- `Library._analyze` et `find_behavior_rejections` jouent chacun la batterie : un circuit à boucle ou à CLK la subit deux fois par essai.
+- Vitesse d'entraînement : environ 160 générations par seconde aux paliers 1 à 3 (avant : 173), environ 35 à 50 avec une CLK permise (1 entrée), davantage plus lent avec plus d'entrées.
+- Les `.meta` des fichiers C# de la phase 5, `python/src/logicai/routing.py` et `python/tests/test_routing.py` restent non suivis (voir « État de départ »).
+- Le cahier n'est pas modifié ; modifications proposées : `docs/modifications_cahier_proposees.md` (points 11 et 12).
+
+---
+
+## 10 octobre 2026 — Session 5 : phase 5 (liaison en direct), terminée
 
 ### Plan validé par Téo
 
@@ -170,14 +349,256 @@ les faux échecs ; le test est stable (5 exécutions de suite, environ 11 s chac
 Deux de mes erreurs volontaires étaient mal conçues et ont été refaites : réenregistrer un circuit déjà accepté ne change rien dans la bibliothèque, et glisser un NOT non plus (le NOT est déjà trouvé avant le premier essai montré). Une vraie interférence demandait un circuit que l'IA n'a
 pas encore (un NAND à 2 entrées). Une 3e, « préparer un essai à chaque essai accepté », survit à ce test (le coût reste sous 50 %), mais elle est détectée par `test_display_work_is_done_only_when_the_director_asks` (étape 5).
 
+### Vérification par Téo sur son Mac
+
+Téo a lancé `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live --generations 20` sur son Mac (10 octobre 2026) et obtenu, comme attendu :
+`En écoute sur 127.0.0.1:8765 : lance Unity (Play). Ctrl-C pour arrêter.` / `Découverte (NEW) : NOT, 1 NAND` / `20 générations jouées.`
+La commande fonctionne donc sur macOS (serveur local, IA, arrêt propre). Seul NOT apparaît en 20 générations : au palier 1 il n'y a que lui à trouver, et le palier 2 ne se débloque qu'après 400 générations sans nouveauté (N = 400).
+
 ### Bilan de la partie Python de la phase 5
 
 Étapes 1 à 6 faites (protocole, ordre de pose, serveur non bloquant, essai montré + directeur, branchement + commande, test de la phase). 875 tests, 4 contrôles verts. **Reste le C#** (étapes 7 à 9), que je peux écrire ici mais pas compiler :
 Téo le vérifie sur son Mac avec `tools/run_unity_tests.sh EditMode` puis `PlayMode`. La phase 5 ne sera jugée terminée qu'après la vérification visuelle dans Unity.
 
+### Étape 7 faite : messages en C# (écrite ici, **vérifiée par Téo : 99 tests sur 99 verts**)
+
+Fichiers (tous dans `Assets/`, aucun `.meta` créé ni modifié) :
+
+- `Scripts/Runtime/LiveMessages.cs` : les classes `[Serializable]` des messages (`PlacementStep`, `DiscoveryData`, `StatsData` ; `StateData` et `CircuitFile` de la phase 3 sont réutilisées), les « enveloppes »
+  dont `JsonUtility` a besoin pour lire une seule clé, et `LiveMessageParser.Parse(ligne)`, qui lit d'abord `message` (le type) puis la classe voulue. Toute ligne incorrecte lève `LiveMessageException`
+  (Unity ne plante pas à cause d'une ligne). Pour une découverte, le parseur vérifie aussi que l'**ordre de pose redonne bien le circuit** du message (même nombre de nœuds et de câbles).
+- `Scripts/Runtime/LivePlacement.cs` : `BuildCircuit(nom, étapes, n)` rejoue les `n` premières étapes de pose et renvoie le circuit partiel (c'est ce que l'interface de l'étape 9 redessinera à chaque étape).
+  Incohérences refusées par `CircuitFormatException` : action inconnue, câble avant l'un de ses nœuds, broche mal écrite, nœud posé deux fois, `n` négatif.
+- `Scripts/Runtime/CircuitLoader.cs` : `Validate` devient publique (une ligne modifiée, plus un commentaire) pour que les messages contenant un circuit soient vérifiés exactement comme un fichier de circuit.
+- `Tests/EditMode/LiveSamples.cs` : **lignes de messages générées par le vrai code Python** (`protocol.py`, `replay.py`), pas écrites à la main (`'` à la place de `"` pour les écrire en C#). Le C# lit donc ce que Python écrit vraiment.
+- `Tests/EditMode/LiveMessageTests.cs` (22 tests) et `LivePlacementTests.cs` (12 tests) : lecture des 4 types de messages, champs inconnus ignorés, 15 cas de messages refusés ; rejeu de l'ordre de pose (chaque préfixe grandit d'une pièce,
+  l'ordre complet redonne le circuit du message) et 8 cas d'ordres incohérents refusés.
+
+**Ce que j'ai pu vérifier ici (sans Unity)** : les chaînes que mes tests remplacent dans les échantillons existent bien (une seule fois) ; les morceaux de messages d'erreur attendus existent dans le code C# ; accolades et parenthèses
+sont équilibrées ; la partie Python n'a pas changé de comportement (seule la docstring de `replay.py` est corrigée : l'axe `y` monte, les nœuds d'une colonne sont posés de bas en haut, l'ordre dans une colonne n'a pas d'effet sur le circuit obtenu).
+**Ce que je ne pouvais pas vérifier ici** : que le C# compile et que les 34 tests passent. Téo l'a fait sur son Mac : voir « Preuve de Téo » ci-dessous.
+
+Comportements de `JsonUtility` que je n'ai volontairement **pas** supposés : ce qu'il met dans un tableau ou un objet absent du JSON (nul ou vide : mes tests acceptent les deux, ils vérifient seulement que le message est refusé).
+Un seul pari reste : un nombre écrit sans virgule (`3`) est lu comme un `float` (test `Parse_StatsWithAnIntegerReward_IsAccepted`) ; Python écrit `3.0`, donc ce test est une précaution. S'il échoue, c'est ce test qui est à revoir, pas le parseur.
+
+| Contrôle (Python, inchangé hors docstring) | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `875 passed` en environ 82 s |
+| Tests C# (34 nouveaux) | `tools/run_unity_tests.sh EditMode` sur le Mac de Téo : `{'total': '99', 'passed': '99', 'failed': '0', 'skipped': '0'}` |
+
+Les `.meta` des 5 nouveaux fichiers seront créés par l'Unity de Téo à la première ouverture ; il les commitera à part (comme en phase 3).
+
+**Preuve de Téo (10 octobre 2026)** : une première exécution a donné `total: 65`, c'est-à-dire exactement le compte d'avant l'étape 7 (56 `[Test]` + 9 `[TestCase]`) : les 34 nouveaux tests n'avaient pas tourné, le dossier
+de Téo ne contenait pas encore mes commits (le script copie `Assets/` depuis le dossier où il est lancé). Je n'ai donc rien conclu de ce résultat. Après avoir récupéré la branche : `total: 99` (65 + 34), 99 réussis, 0 échec, 0 ignoré.
+Le C# compile donc, et mes paris sur `JsonUtility` (dont « `3` lu comme un `float` ») sont confirmés. Leçon à garder : toujours comparer le **total** au compte attendu, pas seulement « 0 échec ».
+
+### Étape 8 faite : connexion à Python en C# (écrite ici, **vérifiée par Téo : 117 tests sur 117 verts**)
+
+Fichiers (aucun `.meta` créé) :
+
+- `Assets/Scripts/Runtime/LiveConnection.cs` : un fil d'arrière-plan se connecte à `127.0.0.1:8765` (port par défaut de `python -m logicai.live`), lit le socket et dépose chaque ligne dans une `ConcurrentQueue<string>` ;
+  le fil principal les prend avec `TryDequeue` (dans `Update`, à l'étape 9) : la scène ne se modifie que depuis lui. Si Python n'est pas là ou s'arrête : nouvel essai toutes les secondes. `Start()` / `Stop()` / `Dispose()`,
+  `IsConnected`, `LastError` (pour afficher « Python ne répond pas »). Les lignes sont rendues brutes ; `LiveMessageParser` (étape 7) les lit.
+- `Assets/Tests/EditMode/LiveConnectionTests.cs` : 18 tests, avec un `TcpListener` local qui joue Python. Ils n'utilisent **jamais** le port 8765 (un vrai `python -m logicai.live` lancé en même temps ne doit pas être dérangé) et
+  attendent les événements avec une échéance de 5 s plutôt qu'une pause fixe.
+
+Choix de conception :
+
+- **`Socket` direct, pas `TcpClient`** : après `TcpClient.Close()`, sa propriété `Client` peut valoir `null` selon l'environnement d'exécution ; si `Stop()` tombait entre la connexion et la lecture, le fil aurait planté.
+  Défaut vu en relisant mon propre code, avant tout test.
+- **Pas de lecture bloquante** : le comportement d'une lecture bloquée quand un autre fil ferme la socket varie selon l'environnement d'exécution (et je ne peux pas le tester ici). Le fil attend les données par tranches de 100 ms
+  (`Poll`) et revérifie à chaque tour s'il doit s'arrêter : `Stop()` est donc prévisible (testé : moins d'une seconde, même pendant l'attente entre deux essais de 10 s).
+- **Découpage sur les octets** : on coupe sur `\n` dans les octets reçus, puis on décode la ligne entière en UTF-8 (un « é » coupé entre deux paquets est donc bien décodé ; testé en envoyant les deux octets séparément).
+- **Taille maximale d'une ligne** (4 Mio par défaut, réglable) : une ligne plus longue n'est jamais livrée, même en partie ; la connexion est coupée puis rétablie. Testé à la limite exacte (100 octets acceptés, 101 refusés).
+- Lignes vides ignorées. Aucune écriture vers Python (le message `action` est de la phase 7).
+
+Règle d'hygiène apprise à l'étape 7 : **comparer le total de tests au compte attendu**. Attendu après l'étape 8 : **99 + 18 = 117**.
+
+**Preuve de Téo (10 octobre 2026)** : `tools/run_unity_tests.sh EditMode` → `{'total': '117', 'passed': '117', 'failed': '0', 'skipped': '0'}`. Le total est celui attendu. Le C# compile et les 18 tests réseau passent du premier coup sur macOS.
+Mes deux paris (fermeture détectée par `Poll` + `Available == 0` ; port libéré aussitôt réutilisable) sont donc confirmés.
+
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses et crochets équilibrés ; le nombre de tests (18) ; la partie Python inchangée depuis les derniers contrôles verts (875 tests).
+
+### Étape 9a faite : la logique de l'affichage en direct (écrite ici, **vérifiée par Téo : 163 tests sur 163 verts**)
+
+Plan validé par Téo (« go ») : l'étape 9 est coupée en **9a** (logique, sans dessin ni réseau) et **9b** (intégration dans `CircuitViewer` et interface). Trois choix de Téo (valeurs par défaut acceptées) :
+le direct démarre par un **clic sur « En direct »** (pas au Play : un test PlayMode exige que le viewer démarre comme avant, et un viewer qui se connecterait tout seul volerait la connexion pendant les tests) ;
+contrôles de rediffusion = **lecture automatique + pause + pas à pas + recommencer** ; vitesse de départ **0,4 s par étape**, à régler par essais.
+
+Fichiers :
+
+- `Assets/Scripts/Runtime/LiveModel.cs` : reçoit les messages déjà lus (`Apply`) et dit **quoi dessiner** (`Shown`, `FitTarget`, `Caption`, `StatsText`) ; `Version` augmente exactement quand le dessin change (le viewer ne redessine pas pour rien).
+  Aucune horloge cachée : la rediffusion avance par `Advance(secondes)`.
+- `Assets/Tests/EditMode/LiveModelTests.cs` : 46 tests, sur les lignes générées par le vrai code Python (`LiveSamples`).
+
+Règles du modèle (chacune a au moins un test) :
+
+| Cas | Comportement |
+| --- | --- |
+| `circuit` | Remplace l'ancien **et efface ses valeurs** |
+| `etat` sans circuit, ou de taille différente, ou aux tableaux manquants | Écarté et compté (`IgnoredFrames`) : le serveur peut jeter un `circuit` en gardant ses `etat` |
+| `decouverte` déjà connue (même nom, genre, coût) | Remplacée sur place : Python renvoie tout l'historique à chaque connexion, pas de doublon |
+| `Reset()` | Efface tout (appelé par le viewer à une nouvelle connexion) |
+| Rediffusion | Part de « rien posé » (rien à dessiner), une pièce par `ReplayStepSeconds` (nœuds puis câbles, via `LivePlacement`), s'arrête à la fin ; relancer la lecture à la fin recommence |
+| Pas à pas | Met en pause ; ◀ s'arrête à 0, ▶ à la fin |
+| Direct pendant une rediffusion | Continue d'être reçu et gardé, sans perturber la rediffusion ; réapparaît au retour au direct |
+| Caméra | Reste cadrée sur le circuit **complet** de la découverte pendant la rediffusion |
+
+Défaut vu en relisant mon code, avant tout test : `CircuitLoader.Validate` ignore les valeurs si les tableaux de l'`etat` sont nuls ; un message construit sans passer par le parseur aurait donc été accepté sans vérification de taille.
+Garde ajoutée dans `ApplyState` (et testée).
+
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses, crochets équilibrés ; le nombre de tests (46) ; chaque chaîne remplacée dans les échantillons existe exactement une fois ; chaque test relu contre le code (durées exactes en flottant : moitié de pas, 3,25 pas).
+
+**Preuve de Téo (10 octobre 2026)** : `tools/run_unity_tests.sh EditMode` → `{'total': '163', 'passed': '163', 'failed': '0', 'skipped': '0'}`, total conforme à 117 + 46.
+
+### Étape 9b faite : intégration dans le visualiseur (écrite ici, **tests vérifiés par Téo : EditMode 178 sur 178, PlayMode 5 sur 5** ; reste sa vérification visuelle)
+
+Fichiers modifiés ou créés (aucun `.meta`, ni scène, ni `ProjectSettings/`, ni `Packages/`) :
+
+- `Assets/Scripts/Runtime/CircuitViewer.cs` (modifié) : deux modes, `ViewerMode.Files` (le comportement de la phase 3, **inchangé** : mêmes méthodes, mêmes tests) et `ViewerMode.Live`. Boutons « Fichiers » / « En direct » en haut du panneau.
+  `Tick(deltaTime)` (appelé par `Update`, public pour les tests) : exécute l'action demandée par un bouton, fait avancer la rediffusion (temps d'image limité à 1 s), lit les lignes de Python (`ProcessIncoming`, au plus 2000 par image),
+  puis redessine seulement si `LiveModel.Version` a changé et recadre la caméra seulement si la cible a changé. Une ligne illisible est comptée (`RejectedLines`) et affichée, sans rien planter.
+  Panneau « En direct » : état de la liaison, statistiques, bibliothèque cliquable (un clic lance la rediffusion), commandes `<` `Pause`/`Lecture` `>` `Début` `Direct`. Le texte du haut vient de `LiveModel.Caption`.
+- `Assets/Scripts/Runtime/LiveConnection.cs` (modifié) : `TryDequeue(out ligne, out connexion)` et `ConnectionCount`. Le numéro de connexion est attaché à chaque ligne **par le fil de lecture**, donc l'ordre est exact.
+  L'ancien `TryDequeue(out ligne)` est conservé tel quel (les 18 tests de l'étape 8 ne sont pas touchés).
+- Tests : `LiveConnectionTests.cs` (+2), `CircuitViewerLiveTests.cs` (13, EditMode, avec un faux Python) et `CircuitViewerLivePlayModeTests.cs` (3, PlayMode : le vrai `Update`, la fermeture à la destruction, et le démarrage en mode Fichiers).
+
+Choix de conception et pourquoi :
+
+| Choix | Raison |
+| --- | --- |
+| Démarrage en mode Fichiers, **pas de connexion automatique** | Un test PlayMode exige l'ancien démarrage ; et se connecter tout seul volerait la liaison d'un autre Unity (Python n'accepte qu'un client) |
+| **Numéro de connexion attaché à chaque ligne**, `Reset` du modèle au changement de numéro | Python relancé pendant que Unity n'a pas le focus : `Update` ne tourne pas, la connexion tombe et revient sans que le viewer le voie. Sans le numéro, des lignes de l'ancien run se mêlaient à celles du nouveau |
+| Boutons : l'action est **demandée** pendant `OnGUI` et exécutée dans `Update` | Changer le nombre de boutons pendant `OnGUI` fait échouer la mise en page d'IMGUI |
+| **Pas de `Application.runInBackground = true`** | Je l'avais annoncé à Téo ; je ne l'ai pas fait : dans l'éditeur, ce réglage peut écrire dans `ProjectSettings/` (non vérifié ici), que je ne dois pas modifier. À la place, le viewer lit tout ce qui est arrivé d'un coup quand il reprend la main. Conséquence : le dessin se fige si la fenêtre Unity perd le focus ; Téo peut cocher « Run In Background » lui-même dans Project Settings |
+| Tests EditMode : `viewer.EnterFilesMode()` dans le `TearDown` | `OnDestroy` ne s'exécute probablement pas en EditMode : sans cela, un fil de connexion resterait vivant et pourrait se brancher sur le serveur d'un autre test |
+
+Défauts vus en relisant mon code, avant tout test : (1) le test PlayMode utilisait `LiveSamples`, qui est dans l'assembly EditMode (invisible depuis PlayMode) : la ligne est maintenant copiée (identique, vérifiée par script) ;
+(2) attente imbriquée (`yield return` d'un autre `IEnumerator`) remplacée par des boucles directes, dont le comportement ne dépend pas du lanceur de tests ; (3) la reconnexion à froid décrite ci-dessus (numéro de connexion).
+
+**Ce que l'IMGUI ne permet pas de tester** (à voir par Téo à l'écran) : la disposition du panneau (boutons, liste, commandes), les couleurs, la lisibilité du texte, le cadrage de la caméra pendant la rediffusion, la fluidité.
+
+Ce que j'avais vérifié ici avant l'essai de Téo : accolades, parenthèses, crochets équilibrés dans les 5 fichiers ; les nombres de tests (13 + 2 + 3) ; la ligne PlayMode identique à l'échantillon ; aucune ambiguïté `Object` (pas de `using System;` dans les tests qui utilisent `UnityEngine`) ;
+aucun appel restant à l'ancien `FitCamera()`.
+
+**Preuve de Téo (10 octobre 2026)**, totaux conformes aux comptes attendus (163 + 2 + 13 et 2 + 3) :
+
+| Commande | Résultat |
+| --- | --- |
+| `tools/run_unity_tests.sh EditMode` | `{'total': '178', 'passed': '178', 'failed': '0', 'skipped': '0'}` |
+| `tools/run_unity_tests.sh PlayMode` | `{'total': '5', 'passed': '5', 'failed': '0', 'skipped': '0'}` |
+
+Le C# compile, la liaison réseau, le modèle, le viewer en direct, le vrai `Update` et la fermeture à la destruction sont donc prouvés par les tests. **Les tests ne prouvent pas** la disposition du panneau, les couleurs, la lisibilité, le cadrage ni la fluidité (IMGUI) : voir la vérification visuelle ci-dessous.
+
+### Couverture du cahier par la phase 5
+
+| Exigence du cahier | Où |
+| --- | --- |
+| « Un essai en direct au ralenti » (seul un essai à la fois est envoyé) | `live_show.py`, `live_director.py` ; côté Unity `LiveModel` + `CircuitViewer` (mode En direct) |
+| « La rediffusion de chaque découverte » (nœuds dans l'ordre des signaux, puis câbles) | `replay.py` ; côté Unity `LivePlacement` + `LiveModel` (lecture, pause, pas à pas) |
+| Interface : bibliothèque, statistiques, bascule entre le direct et les rediffusions | `CircuitViewer` : panneau « En direct », boutons `Direct` et bibliothèque cliquable |
+| Messages `circuit`, `etat`, `decouverte`, `stats` ; `action` laissé à la phase 7 | `protocol.py` ; `LiveMessages.cs` |
+| Test : « on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse » | Mesuré côté Python (`test_phase5.py` : l'affichage ne ralentit pas l'IA) ; **à voir à l'écran par Téo** |
+
+### Vérification visuelle demandée à Téo (dernière condition pour clore la phase 5)
+
+1. `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live --seed 1` (graine 1 : choisie parce qu'elle trouve le XOR directement en 4 NAND ; sur 8 graines essayées de 0 à 7, toutes découvrent NOT puis le palier 2).
+2. Unity : Play, clic sur « En direct ». Attendu : « Connecté à Python », statistiques qui avancent, bibliothèque remplie d'un coup (historique), puis des essais colorés qui défilent (compter jusqu'à environ 9 s pour le premier).
+3. Clic sur NOT, puis XOR dans la bibliothèque : le circuit se pose pièce par pièce (nœuds, puis câbles) ; essayer `<`, `Pause`/`Lecture`, `>`, `Début`, `Direct`.
+4. Lancer Unity avant Python : « Python ne répond pas », puis « Connecté » au lancement de la commande. Relancer Python : la bibliothèque repart de la nouvelle session.
+5. Noter tout ce qui est illisible ou mal cadré (le réglage `ReplayStepSeconds` = 0,4 s est une valeur de départ).
+
+### Vérification visuelle par Téo : phase 5 close
+
+Téo (10 octobre 2026) : « visuellement tout marche ». Le test du cahier (« on regarde l'IA construire pendant que l'entraînement continue à pleine vitesse ») est donc validé à l'écran, en plus des preuves automatiques
+(Python 875 tests ; Unity EditMode 178, PlayMode 5). **Phase 5 terminée.**
+
+Remarque de Téo, qui n'est pas un défaut de la liaison mais du **contenu** de l'essai en direct : les circuits montrés contiennent beaucoup de NAND et « ne font pas de circuit utile ». Il propose de donner des tables de vérité à l'IA
+pour guider sa recherche, « mais ce serait à voir ».
+
+**Mesure (faite à la demande de cette remarque, pas supposée)** : graine 1, 3000 générations (150 000 essais), en reproduisant exactement ce que l'affichage choisit (`LiveSession._on_trial` : un essai accepté qui n'est pas une
+découverte), taille mesurée sur le circuit tel qu'il est affiché (aplati et nettoyé), comparée au coût de la meilleure version connue de la même fonction. Script jetable hors du dépôt (`shown_vs_best.py`) : il utilise `Evolution`, `Curriculum`,
+`flatten`, `remove_useless_nodes` et `Library.cost`, sans rien modifier.
+
+| Constat | Valeur |
+| --- | --- |
+| Essais rejetés par les filtres | 61,6 % |
+| Essais acceptés mais sans rien apporter (`NOTHING` : fonction déjà connue, pas moins de NAND) | 38,3 % |
+| Découvertes (73 nouveautés + 54 records) | 127 essais sur 150 000, soit 0,085 % |
+| Part de `NOTHING` parmi les essais acceptés | 99,8 % |
+| NAND affichés : médiane / moyenne / maximum | 3 / 4,3 / 38 |
+| Plus grands que la meilleure version connue (au moins 2 fois / au moins 3 fois) | 10,8 % / 4,8 % |
+| Circuits affichés de 15 NAND ou plus | 3,5 % |
+
+Lecture : (1) **par construction, tout ce qui est montré en direct est un essai sans valeur** — une découverte part dans la bibliothèque, elle n'est pas montrée en direct. C'est mon interprétation du plan (point 2 : « un circuit accepté,
+aplati ») que Téo avait validée par « go » ; elle ne donne pas ce qu'il espérait. (2) Sur la taille, son impression est juste pour une **queue** (environ 1 circuit sur 10 est au moins deux fois trop gros ; 1 sur 29 a 15 NAND ou plus),
+pas pour la médiane (3 NAND). (3) La recherche n'a **aucun signal de proximité** : la récompense est « tout ou rien » (0 pour 99,9 % des essais), ce qui est la raison de fond pour laquelle l'IA tâtonne.
+
+Cahier : « Elle ne vise donc pas une table imposée » (système de récompense) ; la variante « défis » — le **système** se fixe lui-même une table absente de la bibliothèque, « ce n'est pas toi qui donnes la table » — est prévue pour
+**plus tard** et listée en phase 6 (« paliers 4 et 5 : plusieurs sorties, variante défis, entrée CLK, bonus mémoire »). Les risques du cahier citent déjà « circuits énormes ou inutiles » et « explosion combinatoire dès 4 entrées »
+avec les parades « pénalité de taille » et « variante défis ». Donner des tables à la main serait donc une **modification du cahier**, que je ne décide pas seul.
+
+### Après la phase 5 : « découvertes d'abord » (décisions de Téo)
+
+Réponses de Téo aux questions posées après sa vérification visuelle :
+
+| Question | Réponse de Téo |
+| --- | --- |
+| Que montrer en direct ? | **Découvertes d'abord** : une découverte (nouveauté ou record) est montrée en direct avec ses valeurs ; sinon, seulement les essais pas plus gros que 1,5 fois la meilleure version connue |
+| Tables de vérité comme objectifs de l'IA | **Garder le plan du cahier** : la variante « défis » (le système se fixe lui-même une table absente de la bibliothèque) reste en phase 6, après une mesure du gain avant de coder. Rien n'est commencé |
+| Mettre à jour `CLAUDE.md` | **Oui** : fait (section « Commandes vérifiées » seulement : 178 EditMode, 5 PlayMode, commande `python -m logicai.live`, rappel de comparer le **total**) |
+
+Mise en œuvre (Python seulement ; **aucun changement C#**, donc les totaux Unity restent 178 et 5) :
+
+- `live_director.py` : `offer_trial(messages, priority=False)` et `wants_priority_trial()`. Un essai **prioritaire** part tout de suite, même pendant la pause entre deux essais, et passe devant un essai ordinaire en cours ;
+  un essai prioritaire en cours n'est **jamais interrompu** (ni par un autre prioritaire, ni par un ordinaire).
+- `live.py` : une découverte est annoncée **puis** montrée (si `wants_priority_trial()`) ; un essai qui n'apporte rien n'est préparé que si le directeur le demande **et** s'il est assez petit (`SHOWN_SIZE_FACTOR = 1.5`).
+- `live_show.py` : `shown_nand_count(circuit, definitions)`, la taille du circuit **tel qu'il est montré** (aplati puis nettoyé), calculée par la même fonction que l'affichage.
+
+Conception retenue pour ne pas modifier un test existant : le test `test_display_work_is_done_only_when_the_director_asks` (« un seul essai préparé en 20 générations quand le directeur n'a rien demandé ») décrit une règle qui reste vraie ;
+je ne l'ai donc **pas touché** et il passe. Les nouvelles règles sont couvertes par des tests ajoutés. Au tout début, l'unique essai montré est la découverte de NOT (la bibliothèque est vide : le premier essai accepté est toujours une nouveauté).
+
+Limite connue, par choix de simplicité : dans une **rafale** de découvertes (les premières secondes), la première est montrée jusqu'au bout et les suivantes, qui arrivent pendant ce temps, ne sont **pas** montrées en direct (elles sont dans la bibliothèque
+et se rejouent d'un clic). Une file d'attente est possible, mais n'a pas été demandée.
+
+| Contrôle | Résultat |
+| --- | --- |
+| `ruff check` | `All checks passed!` |
+| `ruff format --check` | `53 files already formatted` |
+| `mypy` (strict, `src/`) | `Success: no issues found in 24 source files` |
+| `pytest` | `896 passed` en environ 83 s (875 avant, 21 nouveaux : 9 directeur, 9 branchement, 3 taille montrée) |
+| Mutations (copie hors du projet) | directeur 12 sur 12 détectées ; `live.py` 13 sur 14 détectées, 1 équivalente ; `live_show.py` 2 sur 2 |
+
+Le mutant équivalent : retirer le test de type `NOTHING` pour ne garder que « le directeur veut » ne change rien d'observable, car un essai refusé a toujours `name = None` et la garde sur le nom l'écarte. Je garde le test explicite pour la lisibilité.
+Une 1re version de mon test « sans nom connu » ne détectait pas la suppression de cette garde (l'erreur est avalée et journalisée par le `try` de `_on_trial`) : il vérifie maintenant qu'aucune erreur n'est journalisée.
+Une hypothèse fausse de ma part, corrigée avant le commit : j'attendais au moins 3 découvertes en 30 générations ; la graine 0 n'en trouve que 2 (NOT, NAND). Le test joue 60 générations (4 découvertes, 4 essais montrés).
+
+**Mesures (graine 1, 3000 générations, pour juger l'effet réel)** :
+
+| Règle | Résultat |
+| --- | --- |
+| Avant : ce qui était montré | uniquement des essais sans apport : moyenne 4,3 NAND, maximum 38 |
+| Maintenant : découvertes montrées | 127 (au lieu de 0) |
+| Maintenant : essais ordinaires candidats | 50 025 (au lieu de 57 401), moyenne 3,7 NAND, maximum 24 |
+
+Part des essais ordinaires qui passeraient selon le facteur de taille : 1,0 → 81,3 % (moyenne 3,4) ; 1,25 → 83,1 % ; **1,5 → 87,2 %** ; 2,0 → 91,8 % ; 3,0 → 97,5 %.
+
+**Enseignement important** : même avec un facteur de 1,0 (uniquement des versions minimales), 81 % des essais ordinaires passent. Les essais « sans valeur » ne sont donc pas surtout trop gros : ce sont des circuits **déjà minimaux qui
+redécouvrent une fonction connue** (par exemple un NOT en 1 NAND refait des milliers de fois). Le filtre de taille agit peu ; le vrai changement est que les découvertes sont montrées. Si l'écran paraît encore monotone, l'étape suivante
+possible est de **varier** ce qu'on montre (ne pas remontrer la même fonction coup sur coup) : non fait, à décider par Téo après avoir regardé.
+
 ### Ce qui reste
 
-Étapes 7 à 9 (C#, à vérifier par Téo sur son Mac avec `tools/run_unity_tests.sh`). La phase 5 ne sera jugée terminée qu'après sa vérification visuelle dans Unity.
+- **Validé par Téo** (10 octobre 2026) : « on est bon », après avoir relancé la vérification visuelle avec les découvertes montrées en direct. **La phase 5 est définitivement close** (preuves : Python 896 tests,
+  Unity EditMode 178 et PlayMode 5, vérification visuelle deux fois).
+- **Cahier à mettre à jour par Téo** (le cahier est en lecture seule pour Claude) : les points 7 à 10 de `docs/modifications_cahier_proposees.md` ne sont pas encore reportés dans le document en ligne ; ils couvrent notamment les « Points à trancher »
+  déjà décidés (taille maximale d'un circuit : aucune limite fixe, seulement la pénalité ; critère de changement de palier : N réglable, 400 de départ ; palier 3) et la forme des messages de la liaison.
+- Réglages à ajuster à l'usage : `SHOWN_SIZE_FACTOR` (1,5), vitesse de rediffusion (`ReplayStepSeconds` = 0,4 s), rythme des essais (3 s / 0,5 s), largeur du panneau (240 px).
+- Options non faites, à la demande de Téo seulement : file d'attente de découvertes pendant une rafale ; variété des fonctions montrées ; légende « découverte » à l'écran (demanderait un champ de plus dans le message `circuit`).
+- Ne pas commencer la phase 6 sans son accord (elle contient la variante « défis », dont la première étape sera une mesure du gain).
 
 ---
 

@@ -5,9 +5,10 @@ L'évolution ne construit pas pas à pas : elle modifie des circuits existants (
 un ordre de pose : « les nœuds dans l'ordre des signaux, puis les câbles ».
 
 - Les **nœuds** sont posés colonne par colonne, de gauche à droite (la colonne ``x``
-  vient de la longueur du plus long chemin depuis une entrée : voir ``layout``), puis de
-  haut en bas dans une colonne. Dans un circuit sans boucle, un nœud est donc toujours
-  posé après ceux qui l'alimentent.
+  vient de la longueur du plus long chemin depuis une entrée : voir ``layout``), puis
+  par ``y`` croissant dans une colonne (l'axe ``y`` monte : de bas en haut). Dans un
+  circuit sans boucle, un nœud est donc toujours posé après ceux qui l'alimentent.
+  L'ordre dans une colonne n'a pas d'effet sur le circuit obtenu.
 - Les **câbles** viennent après tous les nœuds, dans l'ordre de leur puits : un câble
   arrive sur un nœud déjà posé, et on suit la circulation du signal.
 

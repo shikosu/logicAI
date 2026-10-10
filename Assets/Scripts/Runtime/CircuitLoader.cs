@@ -81,7 +81,9 @@ namespace LogicAI
                 && file.etat.cables != null;
         }
 
-        static void Validate(CircuitFile file)
+        // Vérifie qu'un circuit est cohérent (nœuds, câbles, broches, valeurs). Publique : les
+        // messages reçus de Python (LiveMessageParser) contiennent aussi des circuits.
+        public static void Validate(CircuitFile file)
         {
             if (file == null || string.IsNullOrEmpty(file.nom))
             {

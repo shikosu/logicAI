@@ -124,6 +124,131 @@ def test_new_offer_replaces_the_trial_in_progress() -> None:
     assert _numbers(sent, "nouveau") == [0, 1]
 
 
+# --- Les essais prioritaires (les découvertes) --------------------------------
+
+
+def _show_all(director: LiveDirector, clock: FakeClock, steps: int = 30) -> None:
+    """Laisse passer le temps : ``pump`` puis une image de plus, ``steps`` fois."""
+    for _ in range(steps):
+        director.pump()
+        clock.advance(FRAME)
+
+
+def test_a_priority_trial_goes_at_once_even_during_the_pause() -> None:
+    # Règle (choix de Téo : « découvertes d'abord ») : une découverte est montrée tout
+    # de suite, sans attendre la pause entre deux essais.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(1, "ordinaire"))
+    director.pump()
+    assert not director.wants_trial()  # la pause de TRIAL secondes a commencé
+    director.offer_trial(_frames(2, "decouverte"), priority=True)
+    director.pump()
+    assert _numbers(sent, "decouverte") == [0]
+    clock.advance(FRAME)
+    director.pump()
+    assert _numbers(sent, "decouverte") == [0, 1]
+
+
+def test_a_priority_trial_replaces_an_ordinary_one_in_progress() -> None:
+    # Règle : une découverte passe devant un essai ordinaire en cours.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(5, "ordinaire"))
+    director.pump()
+    clock.advance(FRAME)
+    director.offer_trial(_frames(2, "decouverte"), priority=True)
+    _show_all(director, clock)
+    assert _numbers(sent, "ordinaire") == [0]
+    assert _numbers(sent, "decouverte") == [0, 1]
+
+
+def test_a_priority_trial_in_progress_is_not_interrupted_by_another_one() -> None:
+    # Règle : une découverte en cours n'est jamais interrompue ; la 2e proposition
+    # prioritaire est ignorée (elle reste dans la bibliothèque et se rejoue).
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(3, "premiere"), priority=True)
+    director.pump()
+    clock.advance(FRAME)
+    director.offer_trial(_frames(3, "seconde"), priority=True)
+    _show_all(director, clock)
+    assert _numbers(sent, "premiere") == [0, 1, 2]
+    assert _numbers(sent, "seconde") == []
+
+
+def test_a_priority_trial_in_progress_is_not_replaced_by_an_ordinary_one() -> None:
+    # Règle : un essai ordinaire proposé pendant une découverte est ignoré.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(3, "decouverte"), priority=True)
+    director.pump()
+    clock.advance(FRAME)
+    director.offer_trial(_frames(3, "ordinaire"))
+    _show_all(director, clock)
+    assert _numbers(sent, "decouverte") == [0, 1, 2]
+    assert _numbers(sent, "ordinaire") == []
+
+
+def test_priority_is_wanted_unless_a_priority_trial_is_in_progress() -> None:
+    # Règle : l'entraînement ne prépare une découverte que si elle peut être montrée.
+    director, clock, _ = _setup()
+    assert director.wants_priority_trial()  # au repos
+    director.offer_trial(_frames(3), priority=False)
+    director.pump()
+    assert director.wants_priority_trial()  # pendant un essai ordinaire
+    director.offer_trial(_frames(3), priority=True)
+    director.pump()
+    assert not director.wants_priority_trial()  # pendant une découverte
+    for _ in range(3):
+        clock.advance(FRAME)
+        director.pump()
+    assert director.wants_priority_trial()  # fini : le suivant peut être prioritaire
+
+
+def test_after_a_priority_trial_the_next_priority_one_is_shown() -> None:
+    # Règle : une fois la découverte finie, la suivante est montrée à son tour.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(2, "premiere"), priority=True)
+    _show_all(director, clock, 5)
+    director.offer_trial(_frames(2, "seconde"), priority=True)
+    _show_all(director, clock, 5)
+    assert _numbers(sent, "premiere") == [0, 1]
+    assert _numbers(sent, "seconde") == [0, 1]
+
+
+def test_after_a_priority_trial_ordinary_trials_replace_each_other_again() -> None:
+    # Règle : le caractère « prioritaire » ne survit pas à la fin de l'essai.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(1, "decouverte"), priority=True)
+    _show_all(director, clock, 3)
+    director.offer_trial(_frames(5, "ancien"))
+    director.pump()
+    clock.advance(FRAME)
+    director.offer_trial(_frames(2, "nouveau"))
+    _show_all(director, clock)
+    assert _numbers(sent, "ancien") == [0]
+    assert _numbers(sent, "nouveau") == [0, 1]
+
+
+def test_a_priority_trial_is_followed_by_the_usual_pause() -> None:
+    # Règle : après une découverte montrée, la pause entre deux essais s'applique.
+    director, clock, _ = _setup()
+    director.offer_trial(_frames(1), priority=True)
+    director.pump()
+    assert not director.wants_trial()
+    clock.advance(TRIAL - 0.5)
+    assert not director.wants_trial()
+    clock.advance(0.5)
+    assert director.wants_trial()
+
+
+def test_an_empty_priority_offer_is_ignored() -> None:
+    # Règle : une suite vide ne montre rien et n'interrompt rien, même prioritaire.
+    director, clock, sent = _setup()
+    director.offer_trial(_frames(3, "ordinaire"))
+    director.pump()
+    director.offer_trial([], priority=True)
+    _show_all(director, clock)
+    assert _numbers(sent, "ordinaire") == [0, 1, 2]
+
+
 # --- Quand demander un nouvel essai ------------------------------------------
 
 

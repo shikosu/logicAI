@@ -5,6 +5,8 @@ from typing import Any
 
 from builders import (
     add_nand,
+    add_not,
+    bloated,
     build_and,
     build_mux,
     build_xor,
@@ -15,7 +17,7 @@ from builders import (
 )
 from logicai.circuit import Circuit, NodeKind
 from logicai.library import Library
-from logicai.live_show import MAX_SHOWN_COMBINATIONS, trial_messages
+from logicai.live_show import MAX_SHOWN_COMBINATIONS, shown_nand_count, trial_messages
 from logicai.protocol import (
     CIRCUIT_MESSAGE,
     STATE_MESSAGE,
@@ -183,4 +185,71 @@ def test_circuit_given_is_not_changed() -> None:
     circuit = gate(2, build_xor)
     before = (circuit.nodes(), circuit.wires())
     _show(circuit)
+    assert (circuit.nodes(), circuit.wires()) == before
+
+
+# --- La taille de ce qu'on montre ----------------------------------------------
+
+
+def _nand_count_in_message(messages: Sequence[Message]) -> int:
+    """Compte les NAND du circuit contenu dans le message ``circuit`` d'un essai."""
+    first = next(m for m in messages if m["message"] == CIRCUIT_MESSAGE)
+    return circuit_from_dict(first["circuit"])[1].nand_count()
+
+
+def _with_xor_component_and_nots(library: Library, extra_nots: int) -> Circuit:
+    circuit = Circuit()
+    a, b = circuit.add_node(NodeKind.INPUT), circuit.add_node(NodeKind.INPUT)
+    node = library.instantiate(circuit, "XOR")
+    wire(circuit, a, node, 0)
+    wire(circuit, b, node, 1)
+    for _ in range(extra_nots):
+        node = add_not(circuit, node)
+    wire(circuit, node, circuit.add_node(NodeKind.OUTPUT))
+    return circuit
+
+
+def _with_dead_end() -> Circuit:
+    def build(circuit: Circuit, inputs: list[int]) -> int:
+        out = build_xor(circuit, inputs)
+        add_not(circuit, add_not(circuit, out))  # n'influence aucune sortie
+        return out
+
+    return gate(2, build)
+
+
+def test_shown_size_is_the_size_of_the_circuit_sent_to_unity() -> None:
+    # Règle (choix de Téo : ne pas montrer d'essais énormes) : la taille mesurée est
+    # celle du circuit que reçoit Unity, pour des circuits simples, redondants, avec une
+    # impasse ou avec un composant.
+    library = Library()
+    library.register(xor_circuit())
+    definitions = library.definitions()
+    circuits = {
+        "NOT": not_circuit(),
+        "XOR": xor_circuit(),
+        "XOR redondant": gate(2, bloated(build_xor)),
+        "impasse": _with_dead_end(),
+        "composant": _with_xor_component_and_nots(library, 3),
+    }
+    for name, circuit in circuits.items():
+        expected = _nand_count_in_message(_show(circuit, definitions))
+        assert shown_nand_count(circuit, definitions) == expected, name
+
+
+def test_shown_size_ignores_useless_nodes_and_flattens_components() -> None:
+    # Règle : l'impasse (2 NAND qui n'influencent aucune sortie) ne compte pas ; un
+    # composant compte pour les NAND qu'il contient.
+    library = Library()
+    library.register(xor_circuit())
+    definitions = library.definitions()
+    assert _with_dead_end().nand_count() == 6
+    assert shown_nand_count(_with_dead_end(), definitions) == 4
+    assert shown_nand_count(_with_xor_component_and_nots(library, 3), definitions) == 7
+
+
+def test_shown_size_does_not_change_the_circuit() -> None:
+    circuit = _with_dead_end()
+    before = (circuit.nodes(), circuit.wires())
+    shown_nand_count(circuit, NO_COMPONENTS)
     assert (circuit.nodes(), circuit.wires()) == before

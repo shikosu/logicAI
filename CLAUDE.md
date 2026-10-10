@@ -106,9 +106,13 @@ Vérifiées le 10 octobre 2026 sur cette machine (macOS, zsh, Python 3.14.7 de H
   - `mypy` (strict, sur `src/`)
 - Régénérer les fichiers d'exemples pour Unity (dossier `circuits/`, à la racine) :
   `cd python && PYTHONPATH=src .venv/bin/python -m logicai.examples ../circuits`
-- Tests Unity (phase 3), vérifiés le 10 octobre 2026 avec Unity 6000.3.7f1 : l'éditeur est ouvert sur le projet,
+- Tests Unity (phases 3 et 5), vérifiés le 10 octobre 2026 avec Unity 6000.3.7f1 : l'éditeur est ouvert sur le projet,
   donc on teste une **copie** (le vrai projet n'est jamais modifié), depuis la racine du projet :
-  - `tools/run_unity_tests.sh EditMode` (65 tests : lecture, géométrie, dessin lu au pixel, viewer)
-  - `tools/run_unity_tests.sh PlayMode` (2 tests : démarrage tout seul du viewer, cadrage de la caméra)
+  - `tools/run_unity_tests.sh EditMode` (178 tests : lecture, géométrie, dessin lu au pixel, viewer, messages de Python, connexion, modèle du direct)
+  - `tools/run_unity_tests.sh PlayMode` (5 tests : démarrage tout seul du viewer, cadrage de la caméra, lecture réelle de Python, fermeture de la liaison)
   - `LOGICAI_RENDER_DIR=/chemin/dossier tools/run_unity_tests.sh` écrit en plus une image PNG par circuit dessiné.
   La première exécution importe le projet (une quarantaine de secondes). Ne jamais lancer un second Unity sur le vrai dossier.
+  Vérifier le **total** affiché, pas seulement « 0 échec » : un dossier qui ne contient pas les derniers fichiers donne un total plus petit.
+- Liaison en direct Python → Unity (phase 5), vérifiée le 10 octobre 2026 : dans un terminal,
+  `cd python && PYTHONPATH=src .venv/bin/python -m logicai.live --seed 1` (options : `--port`, `--seed`, `--generations` ; Ctrl-C pour arrêter),
+  puis dans Unity : Play, clic sur « En direct ». Python écoute sur 127.0.0.1:8765, Unity se connecte. Un seul Unity à la fois.

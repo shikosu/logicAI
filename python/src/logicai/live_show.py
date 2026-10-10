@@ -37,6 +37,20 @@ SHOW_NAME = "essai"
 MAX_SHOWN_COMBINATIONS = 8
 
 
+def _shown_circuit(circuit: Circuit, definitions: Mapping[str, Circuit]) -> Circuit:
+    """Renvoie le circuit tel qu'on le montre : aplati, puis nettoyé."""
+    return remove_useless_nodes(flatten(circuit, definitions))
+
+
+def shown_nand_count(circuit: Circuit, definitions: Mapping[str, Circuit]) -> int:
+    """Renvoie le nombre de NAND du circuit tel qu'on le montrerait.
+
+    C'est la taille que voit l'utilisateur : composants aplatis, nœuds inutiles retirés.
+    Même erreur que ``trial_messages`` si le circuit est invalide.
+    """
+    return _shown_circuit(circuit, definitions).nand_count()
+
+
 def trial_messages(
     circuit: Circuit, definitions: Mapping[str, Circuit]
 ) -> tuple[dict[str, Any], ...]:
@@ -45,7 +59,7 @@ def trial_messages(
     ``definitions`` donne les composants que le circuit pose. Le circuit donné n'est pas
     modifié. Un circuit invalide (composant inconnu...) lève l'erreur d'aplatissement.
     """
-    flat = remove_useless_nodes(flatten(circuit, definitions))
+    flat = _shown_circuit(circuit, definitions)
     messages = [circuit_message(SHOW_NAME, flat)]
     for vector in _input_vectors(len(flat.inputs())):
         messages.extend(_frames(flat, vector))

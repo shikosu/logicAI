@@ -10,8 +10,9 @@ n'en alimente aucune est retirée.
 from logicai.circuit import Circuit, NodeKind, Pin
 
 # Seuls ces types de nœuds peuvent être retirés : les entrées et les sorties du circuit
-# sont ses broches, elles restent toujours (l'ordre des broches en dépend).
-_REMOVABLE_KINDS = frozenset({NodeKind.NAND, NodeKind.COMPONENT})
+# sont ses broches, elles restent toujours (l'ordre des broches en dépend). Une CLK
+# n'est pas une broche : si elle n'alimente rien d'utile, elle part comme une NAND.
+_REMOVABLE_KINDS = frozenset({NodeKind.NAND, NodeKind.COMPONENT, NodeKind.CLK})
 
 
 def remove_useless_nodes(circuit: Circuit) -> Circuit:

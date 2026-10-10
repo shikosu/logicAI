@@ -46,6 +46,7 @@ _TYPE_OF_KIND: dict[NodeKind, str] = {
     NodeKind.INPUT: "ENTREE",
     NodeKind.OUTPUT: "SORTIE",
     NodeKind.NAND: "NAND",
+    NodeKind.CLK: "CLK",
     NodeKind.COMPONENT: "COMPOSANT",
 }
 _KIND_OF_TYPE: dict[str, NodeKind] = {

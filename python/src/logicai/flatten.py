@@ -23,6 +23,10 @@ from logicai.errors import (
 # Le puits unique d'une sortie du circuit.
 _OUTPUT_SINK = 0
 
+# Les nœuds d'un composant qui existent vraiment dans le circuit aplati : les NAND et
+# les CLK (une CLK dans un composant reste une CLK, toutes partagent la même horloge).
+_REAL_NODE_KINDS = frozenset({NodeKind.NAND, NodeKind.CLK})
+
 
 class _Instance:
     """Un circuit posé dans l'aplatissement : le circuit de départ ou un composant.
@@ -38,8 +42,8 @@ class _Instance:
         self.uid = uid
         self.circuit = circuit
         self.parent = parent
-        # Identifiant, dans le circuit aplati, des NAND de cette instance (et des
-        # entrées et sorties, seulement pour le circuit de départ).
+        # Identifiant, dans le circuit aplati, des NAND et des CLK de cette instance (et
+        # des entrées et sorties, seulement pour le circuit de départ).
         self.flat_ids: dict[int, int] = {}
         # Identifiant d'un nœud composant -> l'instance qui le remplace.
         self.children: dict[int, _Instance] = {}
@@ -85,7 +89,7 @@ class _Flattener:
                 instance.children[node.node_id] = self._instantiate_component(
                     instance, node, stack
                 )
-            elif node.kind is NodeKind.NAND or is_root:
+            elif node.kind in _REAL_NODE_KINDS or is_root:
                 instance.flat_ids[node.node_id] = self._flat.add_node(node.kind)
         return instance
 
@@ -173,7 +177,7 @@ class _Flattener:
             parent, component_id = instance.parent
             position = instance.input_position[node.node_id]
             return self._resolve_sink(parent, Pin(component_id, position))
-        # NAND, ou entrée du circuit de départ : un vrai nœud du circuit aplati.
+        # NAND, CLK, ou entrée du circuit de départ : un vrai nœud du circuit aplati.
         return Pin(instance.flat_ids[node.node_id], source.index)
 
 
