@@ -177,6 +177,40 @@ alors qu'il n'y a plus rien à trouver : le cahier a un seul critère, je ne l'a
 Les tests de critère utilisent une évolution « scénarisée » (sous-classe de `Evolution` dont `step()` rend des rapports écrits d'avance) pour contrôler exactement quelles générations apportent
 une nouveauté, un record ou rien ; deux tests tournent avec une vraie évolution (NOT puis montée aux paliers 2 et 3 avec N = 10, et reproductibilité).
 
+### Étape 6 EN COURS : poids des mutations, test de la phase pas encore écrit
+
+**État du dépôt à ce commit : 1 test échoue (`tests/test_evolution.py::test_records_are_discoveries_but_not_novelties`), en attente de la décision de Téo.**
+Les 4 contrôles complets n'ont donc pas tous réussi à ce commit ; ce n'est pas une étape validée.
+
+Décisions de Téo (réponses du 10 octobre 2026) :
+
+- **Critère « approche les tailles minimales » = cahier à la lettre** : les 8 portes trouvées ; AND = 2, OR = 3, XOR = 4 NAND exactement ; les 5 autres (NAND, ORNOT, ANDNOT, NOR, XNOR)
+  à 1 NAND de leur minimum au plus.
+- **Poids des mutations + 100 circuits récents** : ajouter un câble ×4, ajouter une NAND ou un composant ×2, le reste ×1 (`DEFAULT_MUTATION_WEIGHTS`, option `weights` de `mutate`) ;
+  `DEFAULT_RECENT_SIZE` passe de 20 à 100.
+
+**Tailles minimales exactes** (recherche exhaustive de tous les circuits de NAND avec 2 entrées, script jetable, pas de valeur prise de mémoire) :
+NOT 1, NAND 1, AND 2, ORNOT 2, OR 3, ANDNOT 3, NOR 4, XOR 4, XNOR 5. Elles confirment les chiffres du cahier (AND 2, OR 3, XOR 4).
+
+**Essais chiffrés (8 graines par ligne, 3000 générations au palier 2 après NOT, 4 réglages comparés ; scripts jetables)** :
+
+| Réglage | Les 8 portes trouvées | Les 8 à leur taille minimale |
+| --- | --- | --- |
+| Ancien (tout à égalité, 20 récents) | 2 graines sur 8 | 1 sur 8 |
+| 100 récents seulement | 4 sur 8 | 3 sur 8 |
+| **Favoriser les ajouts + 100 récents (retenu)** | **7 sur 8** | **5 sur 8** |
+| Favoriser les ajouts, 20 récents | 7 sur 8 | 3 sur 8 |
+| 300 récents, tout à égalité | 3 sur 8 | 0 sur 8 |
+
+Avec l'ancien algorithme, les portes trouvées l'étaient presque toujours à leur taille minimale : le blocage était la **découverte** de NOR, XOR et XNOR. Avec les poids, la découverte
+n'est plus le blocage ; ce sont les dernières réductions de taille (un XOR resté à 5 NAND, par exemple).
+
+**Test à trancher** : `test_records_are_discoveries_but_not_novelties` utilise « la graine 4 produit un record dans les 20 premières générations du palier 2 ». Avec le nouvel algorithme, cette
+graine n'en produit plus. La règle vérifiée (un record est une découverte mais pas une nouveauté) reste vraie ; seule la mise en place dépend de la graine. Je ne l'ai pas modifié
+(règle : jamais de modification d'un test sans l'accord de Téo). Proposition : chercher une graine qui produit un record, ou rendre le test indépendant de la graine.
+
+À faire : recherche de graines (en cours, 16 graines, 2500 générations) ; écrire `tests/test_phase4.py` ; mutations ; 4 contrôles ; journal définitif.
+
 ### Environnement de cette session
 
 Machine Linux, Python 3.13.16 (vérifié), `python/.venv` recréé avec `requirements-dev.txt` (versions identiques : pytest 9.1.1, ruff 0.17.0, mypy 2.4.0).

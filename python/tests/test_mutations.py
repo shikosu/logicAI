@@ -1,7 +1,7 @@
 """Tests des mutations (cahier, « IA 1 : l'algorithme évolutionnaire »)."""
 
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import pytest
 
@@ -11,6 +11,7 @@ from logicai.errors import InvalidMutationRulesError
 from logicai.filters import find_rejections
 from logicai.library import Library
 from logicai.mutations import (
+    DEFAULT_MUTATION_WEIGHTS,
     Mutation,
     MutationRules,
     apply_mutation,
@@ -431,3 +432,57 @@ def test_long_chains_stay_legal_when_loops_are_allowed() -> None:
             _assert_legal(circuit, rules)
         loops_seen += not _is_acyclic(circuit)
     assert loops_seen > 0
+
+
+# --- Poids des mutations (décision de Téo, après essais) ---------------------
+
+
+def _draw_kinds(
+    count: int, weights: dict[Mutation, int] | None = None
+) -> Counter[Mutation]:
+    """Tire ``count`` mutations sur un circuit où les 7 sont possibles."""
+    library, rng = _library_with_xor(), random.Random(0)
+    return Counter(
+        mutate(_rich_circuit(), rng, RICH_RULES, library, weights).kind
+        for _ in range(count)
+    )
+
+
+def test_default_weights_give_every_mutation_a_chance() -> None:
+    # Règle : chaque mutation du cahier a un poids positif (donc une chance d'être
+    # tirée), et les poids par défaut ne peuvent pas être modifiés par erreur.
+    assert set(DEFAULT_MUTATION_WEIGHTS) == set(Mutation)
+    assert all(weight >= 1 for weight in DEFAULT_MUTATION_WEIGHTS.values())
+    with pytest.raises(TypeError):
+        DEFAULT_MUTATION_WEIGHTS[Mutation.ADD_NAND] = 9  # type: ignore[index]
+
+
+def test_additions_are_favoured_over_removals() -> None:
+    # Décision de Téo : construire un circuit demande plus d'ajouts que de retraits.
+    # Poids par défaut : câble 4 contre 1, NAND 2 contre 1 (pour retirer un nœud).
+    counts = _draw_kinds(3000)
+    assert counts[Mutation.ADD_WIRE] > 3 * counts[Mutation.REMOVE_WIRE]
+    assert counts[Mutation.ADD_NAND] > 1.5 * counts[Mutation.REMOVE_NODE]
+
+
+def test_custom_weights_change_the_draw() -> None:
+    # Règle : les poids donnés à ``mutate`` remplacent ceux par défaut.
+    weights = {kind: 1 for kind in Mutation} | {Mutation.REMOVE_WIRE: 1000}
+    counts = _draw_kinds(300, weights)
+    assert counts[Mutation.REMOVE_WIRE] > 250
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {kind: 1 for kind in Mutation if kind is not Mutation.ADD_NAND},
+        {kind: 0 for kind in Mutation},
+        {kind: 1 for kind in Mutation} | {Mutation.ADD_WIRE: -3},
+    ],
+    ids=["poids manquant", "poids nuls", "poids négatif"],
+)
+def test_invalid_weights_are_refused(bad: dict[Mutation, int]) -> None:
+    # Règle : sans poids positif pour chaque mutation, « ajouter une NAND » (toujours
+    # possible) n'aurait plus de chance : les poids invalides sont refusés.
+    with pytest.raises(InvalidMutationRulesError):
+        mutate(Circuit(), random.Random(0), RICH_RULES, Library(), bad)

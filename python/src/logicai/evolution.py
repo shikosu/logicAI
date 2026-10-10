@@ -46,7 +46,7 @@ from logicai.reward import RewardSettings, RewardTracker, TrialKind, TrialResult
 DEFAULT_CHILDREN_PER_GENERATION = 50
 DEFAULT_MIN_MUTATIONS = 1
 DEFAULT_MAX_MUTATIONS = 12
-DEFAULT_RECENT_SIZE = 20
+DEFAULT_RECENT_SIZE = 100
 
 
 @dataclass(frozen=True)

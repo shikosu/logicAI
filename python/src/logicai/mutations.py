@@ -23,14 +23,17 @@ Règles de ce module :
   (les mémoires viennent avec les phases 5 et 6) : ce sont des réglages du palier
   (``MutationRules``), pas des règles de câblage.
 
-Le choix de la mutation est uniforme parmi celles qui sont possibles. On ajustera les
-chances de chacune par essais si les résultats le demandent.
+Le choix de la mutation se fait parmi celles qui sont possibles, avec un **poids** par
+mutation (``DEFAULT_MUTATION_WEIGHTS``, décision de Téo après des essais) : construire
+un circuit demande bien plus d'ajouts que de retraits, donc les ajouts de câbles, de
+NAND et de composants sont favorisés. Ces poids se règlent par essais.
 """
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
+from types import MappingProxyType
 
 from logicai.circuit import Circuit, NodeKind, Pin
 from logicai.errors import InvalidMutationRulesError
@@ -47,6 +50,21 @@ class Mutation(Enum):
     REMOVE_NODE = auto()
     ADD_INPUT = auto()
     ADD_OUTPUT = auto()
+
+
+# Poids de départ de chaque mutation (valeurs trouvées par essais, à régler encore) :
+# ajouter un câble 4, ajouter une NAND ou un composant 2, tout le reste 1.
+DEFAULT_MUTATION_WEIGHTS: Mapping[Mutation, int] = MappingProxyType(
+    {
+        Mutation.ADD_NAND: 2,
+        Mutation.ADD_COMPONENT: 2,
+        Mutation.ADD_WIRE: 4,
+        Mutation.REMOVE_WIRE: 1,
+        Mutation.REMOVE_NODE: 1,
+        Mutation.ADD_INPUT: 1,
+        Mutation.ADD_OUTPUT: 1,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -110,19 +128,40 @@ def mutate(
     rng: random.Random,
     rules: MutationRules,
     library: Library,
+    weights: Mapping[Mutation, int] | None = None,
 ) -> MutationResult:
     """Applique une mutation tirée au hasard parmi celles qui sont possibles.
 
-    Ajouter une NAND est toujours possible : cette fonction réussit donc toujours.
-    Le circuit donné n'est pas modifié.
+    Chaque mutation est tirée avec la chance donnée par son poids (par défaut
+    ``DEFAULT_MUTATION_WEIGHTS``). Les poids doivent être des entiers positifs, un par
+    mutation : ainsi ajouter une NAND, toujours possible, a toujours une chance, et
+    cette fonction réussit toujours. Le circuit donné n'est pas modifié.
     """
+    chosen = DEFAULT_MUTATION_WEIGHTS if weights is None else weights
+    chances = _checked_weights(chosen)
     remaining = list(Mutation)
     while True:
-        kind = rng.choice(remaining)
+        kind = rng.choices(remaining, weights=[chances[k] for k in remaining])[0]
         child = apply_mutation(kind, circuit, rng, rules, library)
         if child is not None:
             return MutationResult(kind, child)
         remaining.remove(kind)
+
+
+def _checked_weights(weights: Mapping[Mutation, int]) -> Mapping[Mutation, int]:
+    """Refuse des poids qui ne donnent pas une chance à chaque mutation."""
+    missing = [kind.name for kind in Mutation if kind not in weights]
+    if missing:
+        raise InvalidMutationRulesError(
+            f"Il manque le poids des mutations : {', '.join(missing)}."
+        )
+    bad = [kind.name for kind in Mutation if weights[kind] < 1]
+    if bad:
+        raise InvalidMutationRulesError(
+            "Les poids doivent être des entiers positifs "
+            f"(refusé pour : {', '.join(bad)})."
+        )
+    return weights
 
 
 # --- Les sept mutations ------------------------------------------------------
