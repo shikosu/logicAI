@@ -59,16 +59,33 @@ Preuve que la restriction agit (150 générations, graine 0) : composants décou
 | R1 (mutation restreinte) | **0 sur 8** | 13–15 / 16 |
 | R2 (mutation et parents restreints) | **0 sur 8** | 12–15 / 16 |
 
+**Mesure 4 — l'additionneur complet avec un budget 10 fois plus grand (15 000 générations)**
+
+Même protocole que la mesure 1 en mode direct (échauffement de 800 générations, graines 0 à 7) ; seul le budget change. **Reproductibilité confirmée** : les graines 1 et 6 retrouvent exactement les générations 580 (44 NAND) et 545 (24 NAND) de la mesure 1.
+
+| Graine | Résultat en 15 000 générations |
+|---|---|
+| 0 | non trouvé (15/16 bits) |
+| 1 | génération 580, 44 NAND |
+| 2 | non trouvé (15/16) |
+| 3 | **génération 9 495**, 42 NAND (échec à 15/16 avec 1 500 générations) |
+| 4 | non trouvé (15/16) |
+| 5 | non trouvé (14/16) |
+| 6 | génération 545, 24 NAND |
+| 7 | non trouvé (14/16) |
+
+Trouvées en au plus 1 500 générations : 2 ; 5 000 : 2 ; 10 000 : 3 ; 15 000 : 3. Aucune réduction de taille après 300 générations de plus. Une graine échouée dure de 1 110 à 2 655 s (environ 18 à 44 minutes).
+
 ### Lecture honnête
 
 1. **L'IA actuelle monte l'échelle jusqu'au demi-additionneur, pas au-delà de façon fiable.** L'additionneur complet est atteint dans 0 à 2 essais sur 8 selon la condition, avec des circuits de 24 à 51 NAND, soit 1,8 à 3,9 fois le montage à 13 NAND (2,7 à 5,7 fois les 9 NAND).
 2. **La piste 1 (restreindre les briques) ne change rien dans cette mesure** : 0 sur 8 aux trois conditions, y compris R0 ; la bibliothèque de départ plus riche (10 briques) ne donne pas mieux que celle à 3 briques (1 sur 8). Les écarts entre toutes les conditions (0, 1 ou 2 sur 8) sont dans le bruit de 8 graines. **La dilution de la bibliothèque, par les deux canaux restreints (mutation « ajouter un composant » et choix des parents), n'est donc pas la cause principale** au budget de 1 500 générations. Ma recommandation de la piste 1 était une hypothèse, elle n'est pas confirmée.
-3. **Hypothèses restantes, non testées.** (H1) La proximité (bits de table égaux) est peu informative : une sortie constante à 0 donne déjà 8/16 (calcul), et les échecs plafonnent à 13–15/16, des circuits « presque justes » mais pas proches en structure. (H2) Le montage demande environ 16 pièces justes (8 nœuds, 8 câbles) dont aucun état intermédiaire ne fait monter nettement la proximité. (H3) Budget trop court : 1 500 générations seulement.
+3. **Hypothèses restantes, non testées.** (H1) La proximité (bits de table égaux) est peu informative : une sortie constante à 0 donne déjà 8/16 (calcul), et les échecs plafonnent à 13–15/16, des circuits « presque justes » mais pas proches en structure. (H2) Le montage demande environ 16 pièces justes (8 nœuds, 8 câbles) dont aucun état intermédiaire ne fait monter nettement la proximité. (H3) Budget trop court : **mesuré (mesure 4) et en grande partie écarté** : 10 fois plus de générations n'ajoutent qu'une réussite (3 sur 8 au lieu de 2 sur 8, génération 9 495) et les 5 échecs restent à 14–15/16. L'additionneur complet est donc au moins 10 fois plus dur à trouver que le demi-additionneur (7 sur 8 en 1 313 générations ou moins), pas seulement un peu plus lent.
 4. **La réduction d'un circuit déjà trouvé est faible** (44 reste 44, 24 reste 24 ; la phase 4 l'avait vu pour le XOR).
 
 ### Limites des mesures
 
-8 graines et 1 500 générations par essai ; à ces effectifs, 0, 1 ou 2 réussites sur 8 ne se distinguent pas. L'échauffement ne laisse que 39 à 61 composants (le commentaire de `tests/test_phase6.py` en annonce environ 1 000 : écart **non expliqué**, à vérifier). Le parcours réel arrive au palier 4 avec des milliers de composants, donc plus dur. Vitesse mesurée ici : environ 40 générations par seconde à l'échauffement (800 générations en 15–23 s) ; le journal de la session 6 annonçait environ 160 par seconde : machine différente, non analysé.
+8 graines et 1 500 générations par essai (15 000 pour la mesure 4) ; à ces effectifs, 0, 1 ou 2 réussites sur 8 ne se distinguent pas. L'échauffement ne laisse que 39 à 61 composants (le commentaire de `tests/test_phase6.py` en annonce environ 1 000 : écart **non expliqué**, à vérifier). Le parcours réel arrive au palier 4 avec des milliers de composants, donc plus dur. Vitesse mesurée ici : environ 40 générations par seconde à l'échauffement (800 générations en 15–23 s) ; le journal de la session 6 annonçait environ 160 par seconde : machine différente, non analysé.
 
 ### Erreur de ma part
 
@@ -77,7 +94,7 @@ J'ai aussi d'abord présenté l'hypothèse « dilution » comme la plus probable
 
 ### En attente de Téo
 
-1. **Suite à donner.** Pistes (rien n'est décidé) : (a) **mesurer avec un budget 10 fois plus grand** (15 000 générations, environ 20 minutes) pour savoir si l'additionneur complet est « jamais » ou « lent » ; (b) tester H1 en changeant ce que mesure la proximité (par exemple sortie par sortie) ; (c) une mutation qui pose un composant **et câble toutes ses broches d'un coup** (nouvelle mutation, donc modification du cahier) ; (d) laisser l'assemblage au réseau de neurones, qui agit action par action. Ma préférence : (a), la moins chère, qui dit si le problème est la lenteur ou une limite de la méthode.
+1. **Suite à donner.** La piste (a), un budget 10 fois plus grand, est **faite** (mesure 4) : elle ne change pas le tableau. Pistes restantes (rien n'est décidé) : (b) tester H1 en changeant ce que mesure la proximité (par exemple sortie par sortie) ; (c) tester H2 avec une mutation qui pose un composant **et câble toutes ses broches d'un coup**, d'abord dans un script jetable (la rendre permanente serait une nouvelle mutation, donc une modification du cahier) ; (d) laisser l'assemblage au réseau de neurones, qui agit action par action ; (e) viser un objectif plus modeste (portes, MUX, demi-additionneur, bascules). Ma préférence : (c) en script jetable, car elle teste directement l'hypothèse « un montage de 16 pièces est trop long à assembler au hasard ».
 2. **Cahier** : le point 16 de `docs/modifications_cahier_proposees.md` (niveau B pour l'objectif « Von Neumann », ordre des phases) n'est **pas écrit** ; à faire sur ta demande.
 3. Les scripts de mesure sont dans le dossier temporaire de la session et seront perdus ; à conserver (par exemple dans un dossier `tools/`) seulement si tu le veux.
 
