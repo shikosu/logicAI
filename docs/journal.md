@@ -4,6 +4,85 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
+## 11 octobre 2026 — Session 7 : phase 7, cadrage de l'objectif « Von Neumann » et trois mesures (aucun code du dépôt modifié)
+
+### Décisions de Téo en début de session
+
+| Question | Réponse |
+|---|---|
+| L'IA doit « savoir ce que fait une architecture de Von Neumann ». Niveau d'aide : (A) les tables de chaque brique, (B) une liste de capacités à acquérir dans l'ordre, l'IA ne voyant qu'un score, (C) seulement le but final | **B** (exception assumée à « aucune table de vérité fournie » : c'est Téo qui écrit la liste des cibles, alors que le cahier dit que le système choisit lui-même ses défis) |
+| Ordre des phases | **L'échelle Von Neumann d'abord, avec l'IA évolutionnaire** ; le réseau de neurones (phase 7 d'origine du cahier) vient ensuite, sur le même objectif |
+| Mesures préalables avant de construire le catalogue | **OK** pour les trois mesures ci-dessous |
+| Restreindre les briques proposées à la mutation (piste 1) | **OK** (indice plus fort que le niveau B : on dit *avec quoi* construire, pas *comment*) |
+
+L'échelle proposée (inspirée de *Nand to Tetris*, de mémoire) : 0 portes · 1 aiguillage (MUX, décodeur) · 2 calcul (demi-additionneur, additionneur complet, n bits, UAL) · 3 mémoire (bascules, registre, compteur) · 4 organisation (RAM, décodeur d'instruction, unité de commande) · 5 machine (un CPU qui exécute un petit programme).
+Les tables de vérité ne passent pas à l'échelle d'un processeur (additionneur 8 bits : 16 entrées, 65 536 lignes ; UAL 8 bits : 19 entrées, 524 288 lignes ; un CPU est séquentiel, donc sans table) : l'objectif doit être un **comportement testable**, pas une table envoyée. Constantes lues dans le code : `STAGE_4_MAX_INPUTS = 4`, `MAX_ARRANGEMENTS = 5040`, `MAX_CANONICAL_INPUTS = 5`.
+
+### État de départ (vérifié)
+
+Linux, Python 3.13.16, 4 cœurs ; **pas de `python/.venv` sur cette machine** (le paquet s'importe avec `PYTHONPATH=src`, il n'a aucune dépendance). Dépôt propre au départ (`git status` vide).
+**Les quatre contrôles (ruff, ruff format, mypy, pytest) n'ont pas été relancés** : aucun fichier de code n'a été modifié, seul ce journal l'est.
+
+### Les trois mesures (scripts jetables hors du dépôt, graines 0 à 7, budget 1 500 générations, protocole du test du demi-additionneur de la phase 6)
+
+Protocole : échauffement de 800 générations à 3 entrées et 1 sortie (mesure 1), puis réglages du palier et défi explicite posé avec `evolution.challenge`, budget de 1 500 générations. L'additionneur complet est la cible (SOMME, RETENUE) sur 3 entrées ; l'additionneur 2 bits a 4 entrées (a0, a1, b0, b1) et 3 sorties.
+
+**Mesure 1 — l'IA actuelle monte-t-elle l'échelle ?**
+
+| Étape | Résultat |
+|---|---|
+| Demi-additionneur (échelle) | **7 sur 8** (générations 26 à 1 313 ; coût trouvé de 9 à 40 NAND). Retrouve le « 7 sur 8 » de la session 6 |
+| Additionneur complet, **direct** (après l'échauffement seul) | **2 sur 8** : graines 1 et 6, générations 580 et 545, **44 et 24 NAND** (pas de baisse après 300 générations de plus). Les 6 autres finissent à 13–15 bits sur 16 |
+| Additionneur complet, **après le demi-additionneur** | **1 sur 7** tentées : graine 4, génération 697, **51 NAND** (39 après 300 générations de plus), **sans utiliser le composant demi-additionneur** |
+| Additionneur 2 bits, après l'additionneur complet | **0 sur 1** tentée (44 bits sur 48 en 1 500 générations, 377 s) |
+
+**Mesure 2 — la solution existe-t-elle avec les bonnes briques, et l'IA l'assemble-t-elle ?**
+
+- Un additionneur complet à **9 NAND** existe : table vérifiée sur les 8 lignes (0 erreur). Je n'ai **pas** vérifié que 9 est le minimum.
+- Construit à la main avec 2 demi-additionneurs (5 NAND) + 1 OU (3 NAND) : **8 nœuds, 8 câbles, 13 NAND**, table identique à la cible, enregistré comme nouvelle découverte (coût 13).
+
+| Départ | Résultat |
+|---|---|
+| NAND + demi-additionneur + OU | **1 sur 8** (graine 0, génération 1 007, **33 NAND**, utilise le demi-additionneur mais pas le OU) ; les autres à 13–15/16 |
+| Bibliothèque vide (contrôle) | **0 sur 8** (12–15/16) |
+
+La bibliothèque « petite » grossit vite : de 3 à 456–974 composants en 1 500 générations (avec 2 sorties permises, chaque paire de fonctions est une nouveauté : même phénomène que le palier 4).
+
+**Mesure 3 — restreindre les briques aux échelons inférieurs (piste 1)**
+
+Départ : 10 briques (NOT, NAND, AND, OR, NOR, XOR, XNOR, ANDNOT, ORNOT, demi-additionneur), enregistrées comme des découvertes (noms connus retrouvés). R1 : la mutation « ajouter un composant » ne tire que parmi ces 10. R2 : R1, et les parents issus de la bibliothèque sont ces 10 briques (+ circuits récents). La restriction est posée dans le script (`evolution.mutate` remplacé, `parents()` surchargé), pas dans le dépôt.
+Preuve que la restriction agit (150 générations, graine 0) : composants découverts qui posent une brique hors des 10 : R0 **28**, R1 **0**, R2 **0**.
+
+| Condition | Additionneur complet trouvé | Meilleure proximité des échecs |
+|---|---|---|
+| R0 (10 briques, sans restriction) | **0 sur 8** | 12–15 / 16 |
+| R1 (mutation restreinte) | **0 sur 8** | 13–15 / 16 |
+| R2 (mutation et parents restreints) | **0 sur 8** | 12–15 / 16 |
+
+### Lecture honnête
+
+1. **L'IA actuelle monte l'échelle jusqu'au demi-additionneur, pas au-delà de façon fiable.** L'additionneur complet est atteint dans 0 à 2 essais sur 8 selon la condition, avec des circuits de 24 à 51 NAND, soit 1,8 à 3,9 fois le montage à 13 NAND (2,7 à 5,7 fois les 9 NAND).
+2. **La piste 1 (restreindre les briques) ne change rien dans cette mesure** : 0 sur 8 aux trois conditions, y compris R0 ; la bibliothèque de départ plus riche (10 briques) ne donne pas mieux que celle à 3 briques (1 sur 8). Les écarts entre toutes les conditions (0, 1 ou 2 sur 8) sont dans le bruit de 8 graines. **La dilution de la bibliothèque, par les deux canaux restreints (mutation « ajouter un composant » et choix des parents), n'est donc pas la cause principale** au budget de 1 500 générations. Ma recommandation de la piste 1 était une hypothèse, elle n'est pas confirmée.
+3. **Hypothèses restantes, non testées.** (H1) La proximité (bits de table égaux) est peu informative : une sortie constante à 0 donne déjà 8/16 (calcul), et les échecs plafonnent à 13–15/16, des circuits « presque justes » mais pas proches en structure. (H2) Le montage demande environ 16 pièces justes (8 nœuds, 8 câbles) dont aucun état intermédiaire ne fait monter nettement la proximité. (H3) Budget trop court : 1 500 générations seulement.
+4. **La réduction d'un circuit déjà trouvé est faible** (44 reste 44, 24 reste 24 ; la phase 4 l'avait vu pour le XOR).
+
+### Limites des mesures
+
+8 graines et 1 500 générations par essai ; à ces effectifs, 0, 1 ou 2 réussites sur 8 ne se distinguent pas. L'échauffement ne laisse que 39 à 61 composants (le commentaire de `tests/test_phase6.py` en annonce environ 1 000 : écart **non expliqué**, à vérifier). Le parcours réel arrive au palier 4 avec des milliers de composants, donc plus dur. Vitesse mesurée ici : environ 40 générations par seconde à l'échauffement (800 générations en 15–23 s) ; le journal de la session 6 annonçait environ 160 par seconde : machine différente, non analysé.
+
+### Erreur de ma part
+
+Dans le script de la mesure 1, j'ai écrit `node.ref` au lieu de `node.component_ref` **sans vérifier l'attribut** dans `circuit.py` (règle « aucune API inventée »). La mesure « échelle » a planté dès qu'un additionneur complet était trouvé ; corrigé, et seules les graines 4 à 7 ont été relancées (les graines 0 à 3 n'étaient pas concernées : aucune n'avait trouvé l'additionneur complet).
+J'ai aussi d'abord présenté l'hypothèse « dilution » comme la plus probable : la mesure 3 ne la confirme pas.
+
+### En attente de Téo
+
+1. **Suite à donner.** Pistes (rien n'est décidé) : (a) **mesurer avec un budget 10 fois plus grand** (15 000 générations, environ 20 minutes) pour savoir si l'additionneur complet est « jamais » ou « lent » ; (b) tester H1 en changeant ce que mesure la proximité (par exemple sortie par sortie) ; (c) une mutation qui pose un composant **et câble toutes ses broches d'un coup** (nouvelle mutation, donc modification du cahier) ; (d) laisser l'assemblage au réseau de neurones, qui agit action par action. Ma préférence : (a), la moins chère, qui dit si le problème est la lenteur ou une limite de la méthode.
+2. **Cahier** : le point 16 de `docs/modifications_cahier_proposees.md` (niveau B pour l'objectif « Von Neumann », ordre des phases) n'est **pas écrit** ; à faire sur ta demande.
+3. Les scripts de mesure sont dans le dossier temporaire de la session et seront perdus ; à conserver (par exemple dans un dossier `tools/`) seulement si tu le veux.
+
+---
+
 ## 10 octobre 2026 — Session 6 : phase 6 (paliers 4 et 5), terminée côté Python (parcours complet mesuré) ; réglages à affiner par essais
 
 ### Décisions de Téo en début de session
