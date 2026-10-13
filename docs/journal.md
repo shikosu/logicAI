@@ -4,7 +4,7 @@ Une entrée par session, la plus récente en haut. Le cahier des charges (`docs/
 
 ---
 
-## 11 octobre 2026 — Session 7 : phase 7, cadrage de l'objectif « Von Neumann » et trois mesures (aucun code du dépôt modifié)
+## 11 octobre 2026 — Session 7 : phase 7, cadrage de l'objectif « Von Neumann » et cinq mesures (aucun code du dépôt modifié)
 
 ### Décisions de Téo en début de session
 
@@ -23,7 +23,7 @@ Les tables de vérité ne passent pas à l'échelle d'un processeur (additionneu
 Linux, Python 3.13.16, 4 cœurs ; **pas de `python/.venv` sur cette machine** (le paquet s'importe avec `PYTHONPATH=src`, il n'a aucune dépendance). Dépôt propre au départ (`git status` vide).
 **Les quatre contrôles (ruff, ruff format, mypy, pytest) n'ont pas été relancés** : aucun fichier de code n'a été modifié, seul ce journal l'est.
 
-### Les trois mesures (scripts jetables hors du dépôt, graines 0 à 7, budget 1 500 générations, protocole du test du demi-additionneur de la phase 6)
+### Les mesures (scripts jetables hors du dépôt, graines 0 à 7, budget 1 500 générations, protocole du test du demi-additionneur de la phase 6)
 
 Protocole : échauffement de 800 générations à 3 entrées et 1 sortie (mesure 1), puis réglages du palier et défi explicite posé avec `evolution.challenge`, budget de 1 500 générations. L'additionneur complet est la cible (SOMME, RETENUE) sur 3 entrées ; l'additionneur 2 bits a 4 entrées (a0, a1, b0, b1) et 3 sorties.
 
@@ -76,12 +76,27 @@ Même protocole que la mesure 1 en mode direct (échauffement de 800 génératio
 
 Trouvées en au plus 1 500 générations : 2 ; 5 000 : 2 ; 10 000 : 3 ; 15 000 : 3. Aucune réduction de taille après 300 générations de plus. Une graine échouée dure de 1 110 à 2 655 s (environ 18 à 44 minutes).
 
+**Mesure 5 — mutation « poser un composant ET câbler toutes ses broches d'un coup » (test de H2)**
+
+Dans le script seulement (rien dans le dépôt), `_APPLIERS[Mutation.ADD_COMPONENT]` est remplacé : le composant posé reçoit une source valide sur chacune de ses entrées et part vers un puits libre sur chacune de ses sorties (mêmes règles anti-boucle que `_add_wire`). Le poids de la mutation (2 sur 12) ne change pas : un composant est posé aussi souvent qu'avant, mais déjà câblé.
+Vérifié avant le lancement : 386 entrées sur 386 et 226 sorties sur 226 câblées sur 200 poses contrôlées ; 0 câble fermant une boucle sur 300 circuits à 6 composants ; le patch est retiré après chaque exécution.
+**Règle d'interprétation fixée avant de voir les chiffres** : H2 est soutenue si A passe de 2 à au moins 6 sur 8, ou B de 0 à au moins 4 sur 8, avec des circuits bien plus petits que 24 à 44 NAND.
+
+| Condition | Départ | Référence (même code, même graines, sans la modification) | Avec la mutation modifiée | Génération de découverte | NAND à la découverte → après +300 générations |
+|---|---|---|---|---|---|
+| A | échauffement de 800 générations (comme la mesure 1) | 2 sur 8 | **5 sur 8** (graines 0, 2, 4, 6, 7) | 89, 172, 432, 506, 922 | 84 à 344 → 17 à 304 |
+| B | les 10 briques des échelons inférieurs (comme R0) | 0 sur 8 | **5 sur 8** (graines 0, 2, 3, 4, 6) | 46, 410, 438, 737, 1 082 | 23 à 223 → 12 à 175 |
+
+Échecs (15 bits sur 16) : A graines 1, 3, 5 ; B graines 1, 5, 7. La meilleure taille : **12 NAND** (B, graine 4, génération 46, 2 composants) et 17 NAND (A, graine 6). Durée d'une exécution de 1 500 générations : de 3 à 1 057 s (bibliothèque jusqu'à environ 4 500 composants, composants lourds à aplatir).
+
 ### Lecture honnête
 
 1. **L'IA actuelle monte l'échelle jusqu'au demi-additionneur, pas au-delà de façon fiable.** L'additionneur complet est atteint dans 0 à 2 essais sur 8 selon la condition, avec des circuits de 24 à 51 NAND, soit 1,8 à 3,9 fois le montage à 13 NAND (2,7 à 5,7 fois les 9 NAND).
 2. **La piste 1 (restreindre les briques) ne change rien dans cette mesure** : 0 sur 8 aux trois conditions, y compris R0 ; la bibliothèque de départ plus riche (10 briques) ne donne pas mieux que celle à 3 briques (1 sur 8). Les écarts entre toutes les conditions (0, 1 ou 2 sur 8) sont dans le bruit de 8 graines. **La dilution de la bibliothèque, par les deux canaux restreints (mutation « ajouter un composant » et choix des parents), n'est donc pas la cause principale** au budget de 1 500 générations. Ma recommandation de la piste 1 était une hypothèse, elle n'est pas confirmée.
 3. **Hypothèses restantes, non testées.** (H1) La proximité (bits de table égaux) est peu informative : une sortie constante à 0 donne déjà 8/16 (calcul), et les échecs plafonnent à 13–15/16, des circuits « presque justes » mais pas proches en structure. (H2) Le montage demande environ 16 pièces justes (8 nœuds, 8 câbles) dont aucun état intermédiaire ne fait monter nettement la proximité. (H3) Budget trop court : **mesuré (mesure 4) et en grande partie écarté** : 10 fois plus de générations n'ajoutent qu'une réussite (3 sur 8 au lieu de 2 sur 8, génération 9 495) et les 5 échecs restent à 14–15/16. L'additionneur complet est donc au moins 10 fois plus dur à trouver que le demi-additionneur (7 sur 8 en 1 313 générations ou moins), pas seulement un peu plus lent.
 4. **La réduction d'un circuit déjà trouvé est faible** (44 reste 44, 24 reste 24 ; la phase 4 l'avait vu pour le XOR).
+5. **(mesure 5) H2 est soutenue pour l'accessibilité de la cible, pas pour la taille.** B passe de 0 à 5 sur 8 (écart net), A de 2 à 5 sur 8 (écart dans le bruit pris seul), et les cibles sont trouvées bien plus tôt (génération médiane 432 en A et 438 en B parmi les graines qui réussissent ; la mesure 4 avait trouvé la cible aux générations 545, 580 et 9 495, pour 3 graines seulement). Mais au regard de ma règle : le critère « B au moins 4 » est atteint, le critère « circuits bien plus petits » **ne l'est pas** pour la majorité (seulement 12 et 17 NAND ; les autres de 31 à 304). La graine 1, qui trouvait la cible à la génération 580 avec la mutation d'origine, échoue avec la modification dans les deux conditions : la mutation change la dynamique, elle ne domine pas.
+   Hypothèse non testée pour les grandes tailles : les composants sont tirés au hasard dans une bibliothèque qui grossit jusqu'à environ 4 500, où les gros sont aussi probables que les petits ; la réduction travaille (189 → 17, 105 → 31 en 300 générations), et 300 générations sont peut-être trop peu.
 
 ### Limites des mesures
 
@@ -94,7 +109,8 @@ J'ai aussi d'abord présenté l'hypothèse « dilution » comme la plus probable
 
 ### En attente de Téo
 
-1. **Suite à donner.** La piste (a), un budget 10 fois plus grand, est **faite** (mesure 4) : elle ne change pas le tableau. Pistes restantes (rien n'est décidé) : (b) tester H1 en changeant ce que mesure la proximité (par exemple sortie par sortie) ; (c) tester H2 avec une mutation qui pose un composant **et câble toutes ses broches d'un coup**, d'abord dans un script jetable (la rendre permanente serait une nouvelle mutation, donc une modification du cahier) ; (d) laisser l'assemblage au réseau de neurones, qui agit action par action ; (e) viser un objectif plus modeste (portes, MUX, demi-additionneur, bascules). Ma préférence : (c) en script jetable, car elle teste directement l'hypothèse « un montage de 16 pièces est trop long à assembler au hasard ».
+1. **Suite à donner.** La piste (a), un budget 10 fois plus grand, est **faite** (mesure 4) : elle ne change pas le tableau. La piste (c), la mutation « poser et câbler d'un coup », est **faite** (mesure 5) : elle rend l'additionneur complet accessible (5 sur 8 dans les deux conditions) mais ne donne pas des circuits petits. Pistes restantes (rien n'est décidé) : (b) tester H1 en changeant ce que mesure la proximité ; (d) laisser l'assemblage au réseau de neurones ; (e) viser un objectif plus modeste ; (f) **tester l'échelon suivant avec la mutation modifiée** : l'additionneur 2 bits (4 entrées, 3 sorties) pour les graines qui ont trouvé l'additionneur complet, et une réduction plus longue que 300 générations. Ma préférence : (f), en script jetable d'abord.
+   Si la mutation modifiée est adoptée un jour : l'ajouter comme **réglage facultatif** (comme `allow_clock`, « sans le réglage, aucun tirage de plus »), pour que le déroulement des paliers 1 à 3 et les tests à graine fixe ne changent pas ; elle changerait la liste des mutations du cahier (« ajouter un composant »), donc une décision de Téo, et elle exigerait ses propres tests.
 2. **Cahier** : le point 16 de `docs/modifications_cahier_proposees.md` (niveau B pour l'objectif « Von Neumann », ordre des phases) n'est **pas écrit** ; à faire sur ta demande.
 3. Les scripts de mesure sont dans le dossier temporaire de la session et seront perdus ; à conserver (par exemple dans un dossier `tools/`) seulement si tu le veux.
 
